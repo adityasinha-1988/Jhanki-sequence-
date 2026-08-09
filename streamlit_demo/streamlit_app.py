@@ -1,4 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v11, UI Fixes & Full Alias Sync)"""
+"""Jhanki Sequencer — Streamlit Simulator (v12, Bulletproof JSON Loading)"""
 
 import time
 import json
@@ -188,26 +188,40 @@ with col_save:
 with col_load:
     uploaded_file = st.file_uploader("📂 Load Sequence Configuration", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
     
-    if uploaded_file is not None and uploaded_file.file_id != st.session_state.last_loaded_file:
-        try:
-            data = json.load(uploaded_file)
-            if "settings" in data:
-                st.session_state.canvas_size = data["settings"].get("canvas_size", 60.0)
-                st.session_state.global_loop_enable = data["settings"].get("global_loop_enable", False)
-                st.session_state.global_loop_count = data["settings"].get("global_loop_count", 2)
-                st.session_state.global_loop_gap = data["settings"].get("global_loop_gap", 1.0)
-                st.session_state.channel_aliases = data["settings"].get("aliases", st.session_state.channel_aliases)
-            
-            if "sequence" in data:
-                st.session_state.sequence_df = pd.DataFrame(data["sequence"])
-            
-            st.session_state.last_loaded_file = uploaded_file.file_id
-            st.session_state.editor_key += 1 
-            st.session_state.alias_key += 1
-            st.rerun()
-            
-        except Exception as e:
-            st.error("Invalid file format. Please upload a valid JSON sequence.")
+    if uploaded_file is not None:
+        file_bytes = uploaded_file.getvalue()
+        if st.session_state.last_loaded_file != file_bytes:
+            try:
+                data = json.loads(file_bytes.decode("utf-8"))
+                
+                # Load Settings
+                if "settings" in data:
+                    st.session_state.canvas_size = float(data["settings"].get("canvas_size", 60.0))
+                    st.session_state.global_loop_enable = bool(data["settings"].get("global_loop_enable", False))
+                    st.session_state.global_loop_count = int(data["settings"].get("global_loop_count", 2))
+                    st.session_state.global_loop_gap = float(data["settings"].get("global_loop_gap", 1.0))
+                    st.session_state.channel_aliases = data["settings"].get("aliases", st.session_state.channel_aliases)
+                
+                # Load Sequence and enforce float typing
+                if "sequence" in data:
+                    df = pd.DataFrame(data["sequence"])
+                    if "Start (s)" in df.columns:
+                        df["Start (s)"] = df["Start (s)"].astype(float)
+                    if "End (s)" in df.columns:
+                        df["End (s)"] = df["End (s)"].astype(float)
+                    st.session_state.sequence_df = df
+                
+                # Update keys to trigger hard UI reload
+                st.session_state.last_loaded_file = file_bytes
+                st.session_state.editor_key += 1 
+                st.session_state.alias_key += 1
+                
+                st.success("JSON Loaded Successfully!")
+                time.sleep(0.5)
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Error loading file: {e}")
 
 st.divider()
 
@@ -415,3 +429,4 @@ if st.session_state.running and st.session_state.start_time is not None:
         st.rerun()
 else:
     render_state(0.0, set())
+    
