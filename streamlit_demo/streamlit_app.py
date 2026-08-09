@@ -1,4 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v5, Global Sequence Loop)"""
+"""Jhanki Sequencer — Streamlit Simulator (v6, Dynamic Global Loop)"""
 
 import time
 import matplotlib.pyplot as plt
@@ -20,12 +20,14 @@ if "channels" not in st.session_state:
             "blocks": [{"start": 0.0, "end": 0.0}]
         } for i in range(CHANNEL_COUNT)
     ]
-if "duration" not in st.session_state:
-    st.session_state.duration = 60.0
+if "canvas_size" not in st.session_state:
+    st.session_state.canvas_size = 60.0
 if "global_loop_enable" not in st.session_state:
     st.session_state.global_loop_enable = False
 if "global_loop_count" not in st.session_state:
     st.session_state.global_loop_count = 2
+if "global_loop_gap" not in st.session_state:
+    st.session_state.global_loop_gap = 1.0
 if "running" not in st.session_state:
     st.session_state.running = False
 if "start_time" not in st.session_state:
@@ -40,38 +42,45 @@ st.title("🎛️ Jhanki Sequencer")
 # --------------------------------------------------------------------------
 # 1. Global Settings
 # --------------------------------------------------------------------------
-
-col_dur, col_loop_en, col_loop_cnt = st.columns(3)
+st.subheader("Global Sequence & Loop Settings")
+col_dur, col_loop_en, col_loop_cnt, col_loop_gap = st.columns(4)
 
 with col_dur:
-    duration = st.number_input(
-        "Base Sequence Duration (s)", 
+    st.number_input(
+        "Slider Timeline Range (s)", 
         min_value=1.0, 
-        value=st.session_state.duration, 
         step=1.0, 
-        disabled=st.session_state.running
+        key="canvas_size",
+        disabled=st.session_state.running,
+        help="Yeh sirf slider ki maximum range define karta hai."
     )
 
 with col_loop_en:
-    st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True) # Alignment spacer
-    global_loop_enable = st.toggle(
-        "Enable Global Sequence Loop", 
-        value=st.session_state.global_loop_enable, 
+    st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True)
+    st.toggle(
+        "Enable Global Loop", 
+        key="global_loop_enable",
         disabled=st.session_state.running
     )
 
 with col_loop_cnt:
-    global_loop_count = st.number_input(
+    st.number_input(
         "Total Loop Count", 
         min_value=1, 
-        value=st.session_state.global_loop_count, 
         step=1, 
-        disabled=st.session_state.running or not global_loop_enable
+        key="global_loop_count",
+        disabled=st.session_state.running or not st.session_state.global_loop_enable
     )
-
-st.session_state.duration = duration
-st.session_state.global_loop_enable = global_loop_enable
-st.session_state.global_loop_count = global_loop_count
+    
+with col_loop_gap:
+    st.number_input(
+        "Gap Between Loops (s)",
+        min_value=0.0,
+        step=0.5,
+        key="global_loop_gap",
+        disabled=st.session_state.running or not st.session_state.global_loop_enable,
+        help="Ek sequence khatam hone ke kitne second baad agla loop shuru ho."
+    )
 
 st.divider()
 
@@ -92,22 +101,20 @@ ch = next(c for c in st.session_state.channels if c["id"] == selected_ch_id)
 
 with st.container(border=True):
     st.markdown(f"### Settings for Channel {ch['id']:02d}")
-    ch["enabled"] = st.toggle("Enable Channel", value=ch["enabled"], disabled=st.session_state.running)
+    ch["enabled"] = st.toggle("Enable Channel", value=ch["enabled"], disabled=st.session_state.running, key=f"en_ch_{ch['id']}")
     
     if ch["enabled"]:
-        st.caption("Aap is channel ke liye multiple custom ON/OFF blocks define kar sakte hain.")
-        
         for idx, blk in enumerate(ch["blocks"]):
             col_slider, col_btn = st.columns([10, 1])
             
             with col_slider:
-                blk["start"] = min(blk["start"], duration)
-                blk["end"] = min(blk["end"], duration)
+                blk["start"] = min(blk["start"], st.session_state.canvas_size)
+                blk["end"] = min(blk["end"], st.session_state.canvas_size)
                 
                 lo, hi = st.slider(
                     f"Block {idx + 1} Timing",
                     min_value=0.0,
-                    max_value=float(duration),
+                    max_value=float(st.session_state.canvas_size),
                     value=(float(blk["start"]), float(blk["end"])),
                     step=0.5,
                     disabled=st.session_state.running,
@@ -125,7 +132,7 @@ with st.container(border=True):
                     else:
                         st.warning("Kam se kam ek block hona zaroori hai.")
 
-        if st.button("➕ Add Another Time Block", disabled=st.session_state.running):
+        if st.button("➕ Add Another Time Block", key=f"add_blk_{ch['id']}", disabled=st.session_state.running):
             ch["blocks"].append({"start": 0.0, "end": 0.0})
             st.rerun()
 
@@ -135,27 +142,39 @@ st.divider()
 # 3. Compute Active Windows & Render Preview (Gantt Chart)
 # --------------------------------------------------------------------------
 base_windows = []
-
-# Collect base windows
 for ch_data in st.session_state.channels:
     if ch_data["enabled"]:
         for blk in ch_data["blocks"]:
             if blk["end"] > blk["start"]:
                 base_windows.append({"id": ch_data["id"], "start": blk["start"], "end": blk["end"]})
 
-# Apply global loop logic
 all_windows = []
-loop_iterations = global_loop_count if global_loop_enable else 1
-max_duration = duration * loop_iterations
+cycle_lines = []
 
-for iteration in range(loop_iterations):
-    offset = iteration * duration
-    for w in base_windows:
-        all_windows.append({
-            "id": w["id"],
-            "start": w["start"] + offset,
-            "end": w["end"] + offset
-        })
+if base_windows:
+    actual_seq_end = max(w["end"] for w in base_windows)
+    
+    if st.session_state.global_loop_enable:
+        cycle_length = actual_seq_end + st.session_state.global_loop_gap
+        loop_iterations = st.session_state.global_loop_count
+        
+        for iteration in range(loop_iterations):
+            offset = iteration * cycle_length
+            if iteration > 0:
+                cycle_lines.append(offset)
+            
+            for w in base_windows:
+                all_windows.append({
+                    "id": w["id"],
+                    "start": w["start"] + offset,
+                    "end": w["end"] + offset
+                })
+        max_duration = (loop_iterations - 1) * cycle_length + actual_seq_end
+    else:
+        all_windows = base_windows.copy()
+        max_duration = actual_seq_end
+else:
+    max_duration = st.session_state.canvas_size
 
 st.subheader("Sequence Preview")
 
@@ -181,12 +200,10 @@ else:
     for spine in ax.spines.values():
         spine.set_color("#3A3A3E")
     
-    # Add vertical lines to denote loop cycles
-    if global_loop_enable and loop_iterations > 1:
-        for i in range(1, loop_iterations):
-            ax.axvline(x=i * duration, color="#555555", linestyle="--", alpha=0.7)
+    for line_x in cycle_lines:
+        ax.axvline(x=line_x, color="#555555", linestyle="--", alpha=0.7)
 
-    ax.set_xlim(0, max_duration)
+    ax.set_xlim(0, max_duration + (max_duration * 0.05))
     ax.grid(axis="x", color="#2A2A2E", linewidth=0.5)
     st.pyplot(fig, use_container_width=True)
 
@@ -201,7 +218,7 @@ with c1:
 with c2:
     stop_clicked = st.button("⏹ Stop all", use_container_width=True)
 
-if start_clicked and max_duration > 0:
+if start_clicked and all_windows:
     st.session_state.running = True
     st.session_state.start_time = time.monotonic()
     st.session_state.prev_active = set()
@@ -246,12 +263,7 @@ def log_transitions(elapsed, active_ids):
 def render_state(elapsed, active_ids):
     with status_placeholder.container():
         if st.session_state.running:
-            # Display current loop cycle if looping is active
-            if global_loop_enable:
-                current_loop = min(int(elapsed // duration) + 1, loop_iterations)
-                st.success(f"Running — Loop {current_loop}/{loop_iterations} | Time: {elapsed:.1f}s / {max_duration:.0f}s")
-            else:
-                st.success(f"Running — Time: {elapsed:.1f}s / {max_duration:.0f}s")
+            st.success(f"Running — Time: {elapsed:.1f}s / {max_duration:.1f}s")
         else:
             st.info("Idle")
 
@@ -304,4 +316,4 @@ if st.session_state.running and st.session_state.start_time is not None:
         st.rerun()
 else:
     render_state(0.0, set())
-            
+    
