@@ -1,4 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v12, Bulletproof JSON Loading)"""
+"""Jhanki Sequencer — Streamlit Simulator (v13, Explicit Load Button & Hardened Sync)"""
 
 import time
 import json
@@ -38,8 +38,6 @@ if "prev_active" not in st.session_state:
 if "event_log" not in st.session_state:
     st.session_state.event_log = []
     
-if "last_loaded_file" not in st.session_state:
-    st.session_state.last_loaded_file = None
 if "editor_key" not in st.session_state:
     st.session_state.editor_key = 0
 if "alias_key" not in st.session_state:
@@ -64,7 +62,7 @@ with col_dur:
     st.session_state.canvas_size = canvas_size
 
 with col_loop_en:
-    st.write("") # Spacer replacing the div to fix the desktop click bug
+    st.write("") 
     global_loop_enable = st.toggle(
         "Enable Global Loop", 
         value=bool(st.session_state.global_loop_enable),
@@ -93,7 +91,6 @@ with col_loop_gap:
     st.session_state.global_loop_gap = global_loop_gap
 
 with st.expander("📝 Rename Channels", expanded=False):
-    st.caption("Channels ke custom names yahan set karein. Ye names UI aur logs mein dikhenge.")
     alias_df = pd.DataFrame(list(st.session_state.channel_aliases.items()), columns=["Hardware ID", "Custom Name"])
     edited_aliases = st.data_editor(
         alias_df, 
@@ -182,16 +179,17 @@ with col_save:
         data=json_str,
         file_name="jhanki_sequence.json",
         mime="application/json",
-        disabled=st.session_state.running
+        disabled=st.session_state.running,
+        use_container_width=True
     )
 
 with col_load:
-    uploaded_file = st.file_uploader("📂 Load Sequence Configuration", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
+    uploaded_file = st.file_uploader("📂 Load Configuration File", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
     
     if uploaded_file is not None:
-        file_bytes = uploaded_file.getvalue()
-        if st.session_state.last_loaded_file != file_bytes:
+        if st.button("📥 Apply Loaded Configuration", use_container_width=True, type="primary"):
             try:
+                file_bytes = uploaded_file.getvalue()
                 data = json.loads(file_bytes.decode("utf-8"))
                 
                 # Load Settings
@@ -202,17 +200,21 @@ with col_load:
                     st.session_state.global_loop_gap = float(data["settings"].get("global_loop_gap", 1.0))
                     st.session_state.channel_aliases = data["settings"].get("aliases", st.session_state.channel_aliases)
                 
-                # Load Sequence and enforce float typing
+                # Load Sequence and enforce strict table formatting
                 if "sequence" in data:
                     df = pd.DataFrame(data["sequence"])
-                    if "Start (s)" in df.columns:
-                        df["Start (s)"] = df["Start (s)"].astype(float)
-                    if "End (s)" in df.columns:
-                        df["End (s)"] = df["End (s)"].astype(float)
+                    
+                    if "Channel" not in df.columns: df["Channel"] = "CH 01"
+                    if "Start (s)" not in df.columns: df["Start (s)"] = 0.0
+                    if "End (s)" not in df.columns: df["End (s)"] = 0.0
+                    
+                    df = df[["Channel", "Start (s)", "End (s)"]]
+                    df["Start (s)"] = df["Start (s)"].astype(float)
+                    df["End (s)"] = df["End (s)"].astype(float)
+                    
                     st.session_state.sequence_df = df
                 
-                # Update keys to trigger hard UI reload
-                st.session_state.last_loaded_file = file_bytes
+                # Force hard reload of widgets
                 st.session_state.editor_key += 1 
                 st.session_state.alias_key += 1
                 
