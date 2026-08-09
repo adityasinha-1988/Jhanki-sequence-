@@ -1,4 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v8, Full Save/Load & State Sync)"""
+"""Jhanki Sequencer — Streamlit Simulator (v9, Loop & State Bug Fixes)"""
 
 import time
 import json
@@ -35,108 +35,70 @@ if "prev_active" not in st.session_state:
     st.session_state.prev_active = set()
 if "event_log" not in st.session_state:
     st.session_state.event_log = []
+    
+# State variables to prevent loops and widget resets
+if "last_loaded_file" not in st.session_state:
+    st.session_state.last_loaded_file = None
+if "editor_key" not in st.session_state:
+    st.session_state.editor_key = 0
 
 st.title("🎛️ Jhanki Sequencer")
 
 # --------------------------------------------------------------------------
-# 1. Save & Load Configuration
-# --------------------------------------------------------------------------
-st.subheader("File Management")
-col_save, col_load = st.columns(2)
-
-with col_save:
-    # Build a combined JSON payload including both settings and table data
-    save_payload = {
-        "settings": {
-            "canvas_size": st.session_state.canvas_size,
-            "global_loop_enable": st.session_state.global_loop_enable,
-            "global_loop_count": st.session_state.global_loop_count,
-            "global_loop_gap": st.session_state.global_loop_gap
-        },
-        "sequence": st.session_state.sequence_df.to_dict(orient="records")
-    }
-    json_str = json.dumps(save_payload, indent=4)
-    
-    st.download_button(
-        label="💾 Save Sequence Configuration",
-        data=json_str,
-        file_name="jhanki_sequence.json",
-        mime="application/json",
-        disabled=st.session_state.running
-    )
-
-with col_load:
-    uploaded_file = st.file_uploader("📂 Load Sequence Configuration", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
-    if uploaded_file is not None:
-        try:
-            data = json.load(uploaded_file)
-            # Restore Settings
-            if "settings" in data:
-                st.session_state.canvas_size = data["settings"].get("canvas_size", 60.0)
-                st.session_state.global_loop_enable = data["settings"].get("global_loop_enable", False)
-                st.session_state.global_loop_count = data["settings"].get("global_loop_count", 2)
-                st.session_state.global_loop_gap = data["settings"].get("global_loop_gap", 1.0)
-            # Restore Sequence Data
-            if "sequence" in data:
-                st.session_state.sequence_df = pd.DataFrame(data["sequence"])
-            st.success("Configuration loaded successfully!")
-            time.sleep(1) # Short delay to show success message
-            st.rerun()
-        except Exception as e:
-            st.error("Invalid file format. Please upload a valid JSON sequence.")
-
-st.divider()
-
-# --------------------------------------------------------------------------
-# 2. Global Settings
+# 1. Global Settings
 # --------------------------------------------------------------------------
 st.subheader("Global Sequence & Loop Settings")
 col_dur, col_loop_en, col_loop_cnt, col_loop_gap = st.columns(4)
 
 with col_dur:
-    st.number_input(
+    canvas_size = st.number_input(
         "Timeline Reference Range (s)", 
         min_value=1.0, 
         step=1.0, 
-        key="canvas_size",
+        value=float(st.session_state.canvas_size),
         disabled=st.session_state.running
     )
+    st.session_state.canvas_size = canvas_size
 
 with col_loop_en:
     st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True)
-    st.toggle(
+    global_loop_enable = st.toggle(
         "Enable Global Loop", 
-        key="global_loop_enable",
+        value=bool(st.session_state.global_loop_enable),
         disabled=st.session_state.running
     )
+    st.session_state.global_loop_enable = global_loop_enable
 
 with col_loop_cnt:
-    st.number_input(
+    global_loop_count = st.number_input(
         "Total Loop Count", 
         min_value=1, 
         step=1, 
-        key="global_loop_count",
+        value=int(st.session_state.global_loop_count),
         disabled=st.session_state.running or not st.session_state.global_loop_enable
     )
+    st.session_state.global_loop_count = global_loop_count
     
 with col_loop_gap:
-    st.number_input(
+    global_loop_gap = st.number_input(
         "Gap Between Loops (s)",
         min_value=0.0,
         step=0.5,
-        key="global_loop_gap",
+        value=float(st.session_state.global_loop_gap),
         disabled=st.session_state.running or not st.session_state.global_loop_enable
     )
+    st.session_state.global_loop_gap = global_loop_gap
 
 st.divider()
 
 # --------------------------------------------------------------------------
-# 3. Centralized Sequence Editor (Inline Table)
+# 2. Centralized Sequence Editor (Inline Table)
 # --------------------------------------------------------------------------
 st.subheader("Sequence Editor")
-st.caption("Double-click kisi bhi cell par edit karne ke liye. Naya time block add karne ke liye table ke bottom mein '+' icon dabayein. Delete karne ke liye row select karke 'Delete' dabayein.")
+st.caption("Double-click kisi cell par edit karne ke liye. Naya block add karne ke liye '+' icon dabayein. Delete karne ke liye row select karke 'Delete' dabayein.")
 
-# State sync fixed by assigning directly and bypassing extra rerun loop
+# Notice: We are NOT assigning edited_df back to st.session_state.sequence_df directly
+# This prevents the widget from resetting state while you are typing.
 edited_df = st.data_editor(
     st.session_state.sequence_df,
     num_rows="dynamic",
@@ -160,10 +122,63 @@ edited_df = st.data_editor(
             required=True
         )
     },
-    key="data_editor",
+    key=f"data_editor_{st.session_state.editor_key}",
     disabled=st.session_state.running
 )
-st.session_state.sequence_df = edited_df
+
+st.divider()
+
+# --------------------------------------------------------------------------
+# 3. Save & Load Configuration (Placed here to access edited_df)
+# --------------------------------------------------------------------------
+st.subheader("File Management")
+col_save, col_load = st.columns(2)
+
+with col_save:
+    save_payload = {
+        "settings": {
+            "canvas_size": st.session_state.canvas_size,
+            "global_loop_enable": st.session_state.global_loop_enable,
+            "global_loop_count": st.session_state.global_loop_count,
+            "global_loop_gap": st.session_state.global_loop_gap
+        },
+        "sequence": edited_df.to_dict(orient="records")
+    }
+    json_str = json.dumps(save_payload, indent=4)
+    
+    st.download_button(
+        label="💾 Save Sequence Configuration",
+        data=json_str,
+        file_name="jhanki_sequence.json",
+        mime="application/json",
+        disabled=st.session_state.running
+    )
+
+with col_load:
+    uploaded_file = st.file_uploader("📂 Load Sequence Configuration", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
+    
+    # File ID check prevents infinite execution loop
+    if uploaded_file is not None and uploaded_file.file_id != st.session_state.last_loaded_file:
+        try:
+            data = json.load(uploaded_file)
+            if "settings" in data:
+                st.session_state.canvas_size = data["settings"].get("canvas_size", 60.0)
+                st.session_state.global_loop_enable = data["settings"].get("global_loop_enable", False)
+                st.session_state.global_loop_count = data["settings"].get("global_loop_count", 2)
+                st.session_state.global_loop_gap = data["settings"].get("global_loop_gap", 1.0)
+            
+            if "sequence" in data:
+                # Update base DataFrame and force data_editor to rebuild
+                st.session_state.sequence_df = pd.DataFrame(data["sequence"])
+            
+            st.session_state.last_loaded_file = uploaded_file.file_id
+            st.session_state.editor_key += 1 # Forces widget refresh with new data
+            st.rerun()
+            
+        except Exception as e:
+            st.error("Invalid file format. Please upload a valid JSON sequence.")
+
+st.divider()
 
 # --------------------------------------------------------------------------
 # 4. Compute Active Windows & Render Preview (Gantt Chart)
