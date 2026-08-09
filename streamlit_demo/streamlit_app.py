@@ -1,6 +1,7 @@
-"""Jhanki Sequencer — Streamlit Simulator (v7, Data Editor & Save/Load)"""
+"""Jhanki Sequencer — Streamlit Simulator (v8, Full Save/Load & State Sync)"""
 
 import time
+import json
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -14,7 +15,6 @@ st.set_page_config(page_title="Jhanki Sequencer", layout="wide")
 # --------------------------------------------------------------------------
 
 if "sequence_df" not in st.session_state:
-    # Default starting block for each channel
     st.session_state.sequence_df = pd.DataFrame([
         {"Channel": f"CH {i:02d}", "Start (s)": 0.0, "End (s)": 0.0}
         for i in range(1, CHANNEL_COUNT + 1)
@@ -45,7 +45,18 @@ st.subheader("File Management")
 col_save, col_load = st.columns(2)
 
 with col_save:
-    json_str = st.session_state.sequence_df.to_json(orient="records")
+    # Build a combined JSON payload including both settings and table data
+    save_payload = {
+        "settings": {
+            "canvas_size": st.session_state.canvas_size,
+            "global_loop_enable": st.session_state.global_loop_enable,
+            "global_loop_count": st.session_state.global_loop_count,
+            "global_loop_gap": st.session_state.global_loop_gap
+        },
+        "sequence": st.session_state.sequence_df.to_dict(orient="records")
+    }
+    json_str = json.dumps(save_payload, indent=4)
+    
     st.download_button(
         label="💾 Save Sequence Configuration",
         data=json_str,
@@ -58,8 +69,19 @@ with col_load:
     uploaded_file = st.file_uploader("📂 Load Sequence Configuration", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
     if uploaded_file is not None:
         try:
-            df = pd.read_json(uploaded_file)
-            st.session_state.sequence_df = df
+            data = json.load(uploaded_file)
+            # Restore Settings
+            if "settings" in data:
+                st.session_state.canvas_size = data["settings"].get("canvas_size", 60.0)
+                st.session_state.global_loop_enable = data["settings"].get("global_loop_enable", False)
+                st.session_state.global_loop_count = data["settings"].get("global_loop_count", 2)
+                st.session_state.global_loop_gap = data["settings"].get("global_loop_gap", 1.0)
+            # Restore Sequence Data
+            if "sequence" in data:
+                st.session_state.sequence_df = pd.DataFrame(data["sequence"])
+            st.success("Configuration loaded successfully!")
+            time.sleep(1) # Short delay to show success message
+            st.rerun()
         except Exception as e:
             st.error("Invalid file format. Please upload a valid JSON sequence.")
 
@@ -114,6 +136,7 @@ st.divider()
 st.subheader("Sequence Editor")
 st.caption("Double-click kisi bhi cell par edit karne ke liye. Naya time block add karne ke liye table ke bottom mein '+' icon dabayein. Delete karne ke liye row select karke 'Delete' dabayein.")
 
+# State sync fixed by assigning directly and bypassing extra rerun loop
 edited_df = st.data_editor(
     st.session_state.sequence_df,
     num_rows="dynamic",
@@ -147,7 +170,6 @@ st.session_state.sequence_df = edited_df
 # --------------------------------------------------------------------------
 base_windows = []
 
-# Parse valid entries from the dataframe
 for _, row in edited_df.iterrows():
     ch_str = str(row.get("Channel", ""))
     if pd.isna(row.get("Start (s)")) or pd.isna(row.get("End (s)")):
@@ -207,7 +229,7 @@ else:
             width=w["end"] - w["start"],
             left=w["start"],
             height=0.5,
-            color="#2ECC71",  # Changed to Green
+            color="#2ECC71",
         )
         
     ax.set_xlabel("Time (s)", color="#8B8B8F")
