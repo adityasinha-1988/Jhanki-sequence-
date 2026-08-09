@@ -1,4 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v9, Loop & State Bug Fixes)"""
+"""Jhanki Sequencer — Streamlit Simulator (v10, Custom Channel Names)"""
 
 import time
 import json
@@ -19,6 +19,8 @@ if "sequence_df" not in st.session_state:
         {"Channel": f"CH {i:02d}", "Start (s)": 0.0, "End (s)": 0.0}
         for i in range(1, CHANNEL_COUNT + 1)
     ])
+if "channel_aliases" not in st.session_state:
+    st.session_state.channel_aliases = {f"CH {i:02d}": f"CH {i:02d}" for i in range(1, CHANNEL_COUNT + 1)}
 if "canvas_size" not in st.session_state:
     st.session_state.canvas_size = 60.0
 if "global_loop_enable" not in st.session_state:
@@ -36,16 +38,17 @@ if "prev_active" not in st.session_state:
 if "event_log" not in st.session_state:
     st.session_state.event_log = []
     
-# State variables to prevent loops and widget resets
 if "last_loaded_file" not in st.session_state:
     st.session_state.last_loaded_file = None
 if "editor_key" not in st.session_state:
     st.session_state.editor_key = 0
+if "alias_key" not in st.session_state:
+    st.session_state.alias_key = 1000
 
 st.title("🎛️ Jhanki Sequencer")
 
 # --------------------------------------------------------------------------
-# 1. Global Settings
+# 1. Global Settings & Renaming
 # --------------------------------------------------------------------------
 st.subheader("Global Sequence & Loop Settings")
 col_dur, col_loop_en, col_loop_cnt, col_loop_gap = st.columns(4)
@@ -89,16 +92,25 @@ with col_loop_gap:
     )
     st.session_state.global_loop_gap = global_loop_gap
 
+with st.expander("📝 Rename Channels", expanded=False):
+    st.caption("Channels ke custom names yahan set karein. Ye names UI aur logs mein dikhenge.")
+    alias_df = pd.DataFrame(list(st.session_state.channel_aliases.items()), columns=["Hardware ID", "Custom Name"])
+    edited_aliases = st.data_editor(
+        alias_df, 
+        disabled=["Hardware ID"], 
+        hide_index=True, 
+        use_container_width=True,
+        key=f"alias_editor_{st.session_state.alias_key}"
+    )
+    st.session_state.channel_aliases = dict(zip(edited_aliases["Hardware ID"], edited_aliases["Custom Name"]))
+
 st.divider()
 
 # --------------------------------------------------------------------------
 # 2. Centralized Sequence Editor (Inline Table)
 # --------------------------------------------------------------------------
 st.subheader("Sequence Editor")
-st.caption("Double-click kisi cell par edit karne ke liye. Naya block add karne ke liye '+' icon dabayein. Delete karne ke liye row select karke 'Delete' dabayein.")
 
-# Notice: We are NOT assigning edited_df back to st.session_state.sequence_df directly
-# This prevents the widget from resetting state while you are typing.
 edited_df = st.data_editor(
     st.session_state.sequence_df,
     num_rows="dynamic",
@@ -129,7 +141,7 @@ edited_df = st.data_editor(
 st.divider()
 
 # --------------------------------------------------------------------------
-# 3. Save & Load Configuration (Placed here to access edited_df)
+# 3. Save & Load Configuration
 # --------------------------------------------------------------------------
 st.subheader("File Management")
 col_save, col_load = st.columns(2)
@@ -140,7 +152,8 @@ with col_save:
             "canvas_size": st.session_state.canvas_size,
             "global_loop_enable": st.session_state.global_loop_enable,
             "global_loop_count": st.session_state.global_loop_count,
-            "global_loop_gap": st.session_state.global_loop_gap
+            "global_loop_gap": st.session_state.global_loop_gap,
+            "aliases": st.session_state.channel_aliases
         },
         "sequence": edited_df.to_dict(orient="records")
     }
@@ -157,7 +170,6 @@ with col_save:
 with col_load:
     uploaded_file = st.file_uploader("📂 Load Sequence Configuration", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
     
-    # File ID check prevents infinite execution loop
     if uploaded_file is not None and uploaded_file.file_id != st.session_state.last_loaded_file:
         try:
             data = json.load(uploaded_file)
@@ -166,13 +178,14 @@ with col_load:
                 st.session_state.global_loop_enable = data["settings"].get("global_loop_enable", False)
                 st.session_state.global_loop_count = data["settings"].get("global_loop_count", 2)
                 st.session_state.global_loop_gap = data["settings"].get("global_loop_gap", 1.0)
+                st.session_state.channel_aliases = data["settings"].get("aliases", st.session_state.channel_aliases)
             
             if "sequence" in data:
-                # Update base DataFrame and force data_editor to rebuild
                 st.session_state.sequence_df = pd.DataFrame(data["sequence"])
             
             st.session_state.last_loaded_file = uploaded_file.file_id
-            st.session_state.editor_key += 1 # Forces widget refresh with new data
+            st.session_state.editor_key += 1 
+            st.session_state.alias_key += 1
             st.rerun()
             
         except Exception as e:
@@ -238,9 +251,12 @@ else:
     fig.patch.set_facecolor("#141416")
     ax.set_facecolor("#141416")
 
-    for w in sorted(all_windows, key=lambda x: x["id"]):
+    for w in sorted(all_windows, key=lambda x: x["id"], reverse=True):
+        hw_id = f"CH {w['id']:02d}"
+        display_name = st.session_state.channel_aliases.get(hw_id, hw_id)
+        
         ax.barh(
-            y=f"CH {w['id']:02d}",
+            y=display_name,
             width=w["end"] - w["start"],
             left=w["start"],
             height=0.5,
@@ -281,7 +297,9 @@ if stop_clicked:
     if st.session_state.running and st.session_state.prev_active:
         elapsed = time.monotonic() - (st.session_state.start_time or time.monotonic())
         for ch_id in sorted(st.session_state.prev_active):
-            st.session_state.event_log.append(f"{elapsed:5.1f}s — CH {ch_id:02d} OFF (stopped)")
+            hw_id = f"CH {ch_id:02d}"
+            display_name = st.session_state.channel_aliases.get(hw_id, hw_id)
+            st.session_state.event_log.append(f"{elapsed:5.1f}s — {display_name} OFF (stopped)")
     st.session_state.running = False
     st.session_state.start_time = None
     st.session_state.prev_active = set()
@@ -307,9 +325,13 @@ def log_transitions(elapsed, active_ids):
     turned_on = active_ids - st.session_state.prev_active
     turned_off = st.session_state.prev_active - active_ids
     for ch_id in sorted(turned_on):
-        st.session_state.event_log.append(f"{elapsed:5.1f}s — CH {ch_id:02d} ON")
+        hw_id = f"CH {ch_id:02d}"
+        display_name = st.session_state.channel_aliases.get(hw_id, hw_id)
+        st.session_state.event_log.append(f"{elapsed:5.1f}s — {display_name} ON")
     for ch_id in sorted(turned_off):
-        st.session_state.event_log.append(f"{elapsed:5.1f}s — CH {ch_id:02d} OFF")
+        hw_id = f"CH {ch_id:02d}"
+        display_name = st.session_state.channel_aliases.get(hw_id, hw_id)
+        st.session_state.event_log.append(f"{elapsed:5.1f}s — {display_name} OFF")
     st.session_state.prev_active = active_ids
 
 def render_state(elapsed, active_ids):
@@ -330,6 +352,9 @@ def render_state(elapsed, active_ids):
             bg_color = '#2ECC71' if is_on else '#232326'
             text_color = '#141416' if is_on else '#8B8B8F'
             
+            hw_id = f"CH {i:02d}"
+            display_name = st.session_state.channel_aliases.get(hw_id, hw_id)
+            
             with grid_cols[(i - 1) % 8]:
                 st.markdown(
                     f"""
@@ -337,8 +362,12 @@ def render_state(elapsed, active_ids):
                         border-radius:8px; padding:10px; text-align:center; margin-bottom:8px;
                         background:{bg_color}; color:{text_color};
                         font-family:monospace; font-weight:600;
+                        font-size: 0.9em;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
                     ">
-                        CH {i:02d}<br>{'ON' if is_on else 'off'}
+                        {display_name}<br>{'ON' if is_on else 'off'}
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -368,4 +397,4 @@ if st.session_state.running and st.session_state.start_time is not None:
         st.rerun()
 else:
     render_state(0.0, set())
-    
+k
