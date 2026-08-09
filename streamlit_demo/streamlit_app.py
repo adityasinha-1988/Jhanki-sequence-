@@ -1,6 +1,7 @@
-"""Jhanki Sequencer — Streamlit Simulator (v6, Dynamic Global Loop)"""
+"""Jhanki Sequencer — Streamlit Simulator (v7, Data Editor & Save/Load)"""
 
 import time
+import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 
@@ -12,14 +13,12 @@ st.set_page_config(page_title="Jhanki Sequencer", layout="wide")
 # State Initialization
 # --------------------------------------------------------------------------
 
-if "channels" not in st.session_state:
-    st.session_state.channels = [
-        {
-            "id": i + 1, 
-            "enabled": True,
-            "blocks": [{"start": 0.0, "end": 0.0}]
-        } for i in range(CHANNEL_COUNT)
-    ]
+if "sequence_df" not in st.session_state:
+    # Default starting block for each channel
+    st.session_state.sequence_df = pd.DataFrame([
+        {"Channel": f"CH {i:02d}", "Start (s)": 0.0, "End (s)": 0.0}
+        for i in range(1, CHANNEL_COUNT + 1)
+    ])
 if "canvas_size" not in st.session_state:
     st.session_state.canvas_size = 60.0
 if "global_loop_enable" not in st.session_state:
@@ -40,19 +39,45 @@ if "event_log" not in st.session_state:
 st.title("🎛️ Jhanki Sequencer")
 
 # --------------------------------------------------------------------------
-# 1. Global Settings
+# 1. Save & Load Configuration
+# --------------------------------------------------------------------------
+st.subheader("File Management")
+col_save, col_load = st.columns(2)
+
+with col_save:
+    json_str = st.session_state.sequence_df.to_json(orient="records")
+    st.download_button(
+        label="💾 Save Sequence Configuration",
+        data=json_str,
+        file_name="jhanki_sequence.json",
+        mime="application/json",
+        disabled=st.session_state.running
+    )
+
+with col_load:
+    uploaded_file = st.file_uploader("📂 Load Sequence Configuration", type=["json"], label_visibility="collapsed", disabled=st.session_state.running)
+    if uploaded_file is not None:
+        try:
+            df = pd.read_json(uploaded_file)
+            st.session_state.sequence_df = df
+        except Exception as e:
+            st.error("Invalid file format. Please upload a valid JSON sequence.")
+
+st.divider()
+
+# --------------------------------------------------------------------------
+# 2. Global Settings
 # --------------------------------------------------------------------------
 st.subheader("Global Sequence & Loop Settings")
 col_dur, col_loop_en, col_loop_cnt, col_loop_gap = st.columns(4)
 
 with col_dur:
     st.number_input(
-        "Slider Timeline Range (s)", 
+        "Timeline Reference Range (s)", 
         min_value=1.0, 
         step=1.0, 
         key="canvas_size",
-        disabled=st.session_state.running,
-        help="Yeh sirf slider ki maximum range define karta hai."
+        disabled=st.session_state.running
     )
 
 with col_loop_en:
@@ -78,75 +103,65 @@ with col_loop_gap:
         min_value=0.0,
         step=0.5,
         key="global_loop_gap",
-        disabled=st.session_state.running or not st.session_state.global_loop_enable,
-        help="Ek sequence khatam hone ke kitne second baad agla loop shuru ho."
+        disabled=st.session_state.running or not st.session_state.global_loop_enable
     )
 
 st.divider()
 
 # --------------------------------------------------------------------------
-# 2. Centralized Channel Controller
+# 3. Centralized Sequence Editor (Inline Table)
 # --------------------------------------------------------------------------
-st.subheader("Channel Controller")
+st.subheader("Sequence Editor")
+st.caption("Double-click kisi bhi cell par edit karne ke liye. Naya time block add karne ke liye table ke bottom mein '+' icon dabayein. Delete karne ke liye row select karke 'Delete' dabayein.")
 
-selected_ch_id = st.radio(
-    "Select Channel to Edit:", 
-    options=range(1, 17), 
-    horizontal=True, 
-    format_func=lambda x: f"CH {x:02d}",
+edited_df = st.data_editor(
+    st.session_state.sequence_df,
+    num_rows="dynamic",
+    use_container_width=True,
+    column_config={
+        "Channel": st.column_config.SelectboxColumn(
+            "Channel",
+            options=[f"CH {i:02d}" for i in range(1, CHANNEL_COUNT + 1)],
+            required=True
+        ),
+        "Start (s)": st.column_config.NumberColumn(
+            "Start Time (s)", 
+            min_value=0.0, 
+            step=0.5, 
+            required=True
+        ),
+        "End (s)": st.column_config.NumberColumn(
+            "End Time (s)", 
+            min_value=0.0, 
+            step=0.5, 
+            required=True
+        )
+    },
+    key="data_editor",
     disabled=st.session_state.running
 )
-
-ch = next(c for c in st.session_state.channels if c["id"] == selected_ch_id)
-
-with st.container(border=True):
-    st.markdown(f"### Settings for Channel {ch['id']:02d}")
-    ch["enabled"] = st.toggle("Enable Channel", value=ch["enabled"], disabled=st.session_state.running, key=f"en_ch_{ch['id']}")
-    
-    if ch["enabled"]:
-        for idx, blk in enumerate(ch["blocks"]):
-            col_slider, col_btn = st.columns([10, 1])
-            
-            with col_slider:
-                blk["start"] = min(blk["start"], st.session_state.canvas_size)
-                blk["end"] = min(blk["end"], st.session_state.canvas_size)
-                
-                lo, hi = st.slider(
-                    f"Block {idx + 1} Timing",
-                    min_value=0.0,
-                    max_value=float(st.session_state.canvas_size),
-                    value=(float(blk["start"]), float(blk["end"])),
-                    step=0.5,
-                    disabled=st.session_state.running,
-                    key=f"slider_{ch['id']}_{idx}"
-                )
-                blk["start"], blk["end"] = lo, hi
-                st.caption(f"ON Time: {lo:.1f}s | OFF Time: {hi:.1f}s")
-                
-            with col_btn:
-                st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True)
-                if st.button("❌", key=f"del_{ch['id']}_{idx}", disabled=st.session_state.running):
-                    if len(ch["blocks"]) > 1:
-                        ch["blocks"].pop(idx)
-                        st.rerun()
-                    else:
-                        st.warning("Kam se kam ek block hona zaroori hai.")
-
-        if st.button("➕ Add Another Time Block", key=f"add_blk_{ch['id']}", disabled=st.session_state.running):
-            ch["blocks"].append({"start": 0.0, "end": 0.0})
-            st.rerun()
-
-st.divider()
+st.session_state.sequence_df = edited_df
 
 # --------------------------------------------------------------------------
-# 3. Compute Active Windows & Render Preview (Gantt Chart)
+# 4. Compute Active Windows & Render Preview (Gantt Chart)
 # --------------------------------------------------------------------------
 base_windows = []
-for ch_data in st.session_state.channels:
-    if ch_data["enabled"]:
-        for blk in ch_data["blocks"]:
-            if blk["end"] > blk["start"]:
-                base_windows.append({"id": ch_data["id"], "start": blk["start"], "end": blk["end"]})
+
+# Parse valid entries from the dataframe
+for _, row in edited_df.iterrows():
+    ch_str = str(row.get("Channel", ""))
+    if pd.isna(row.get("Start (s)")) or pd.isna(row.get("End (s)")):
+        continue
+        
+    start = float(row["Start (s)"])
+    end = float(row["End (s)"])
+    
+    if "CH" in ch_str and end > start:
+        try:
+            ch_id = int(ch_str.replace("CH ", ""))
+            base_windows.append({"id": ch_id, "start": start, "end": end})
+        except ValueError:
+            pass
 
 all_windows = []
 cycle_lines = []
@@ -179,7 +194,7 @@ else:
 st.subheader("Sequence Preview")
 
 if not all_windows:
-    st.info("Koi valid sequence set nahi hai. Kisi block ka OFF time badhakar dekhein.")
+    st.info("Koi valid sequence set nahi hai. Data Editor mein start aur end time dalein.")
 else:
     unique_active = set(w["id"] for w in all_windows)
     fig, ax = plt.subplots(figsize=(12, max(3, 0.4 * len(unique_active))))
@@ -192,7 +207,7 @@ else:
             width=w["end"] - w["start"],
             left=w["start"],
             height=0.5,
-            color="#E8A33D",
+            color="#2ECC71",  # Changed to Green
         )
         
     ax.set_xlabel("Time (s)", color="#8B8B8F")
@@ -210,7 +225,7 @@ else:
 st.divider()
 
 # --------------------------------------------------------------------------
-# 4. Controls & Execution Logic
+# 5. Controls & Execution Logic
 # --------------------------------------------------------------------------
 c1, c2, c3 = st.columns([1, 1, 3])
 with c1:
@@ -236,7 +251,7 @@ if stop_clicked:
     st.rerun()
 
 # --------------------------------------------------------------------------
-# 5. Live State Render
+# 6. Live State Render
 # --------------------------------------------------------------------------
 st.subheader("Live execution state")
 status_placeholder = st.empty()
@@ -273,12 +288,12 @@ def render_state(elapsed, active_ids):
 
     with grid_placeholder.container():
         grid_cols = st.columns(8)
-        for i, ch_data in enumerate(st.session_state.channels):
-            is_on = ch_data["id"] in active_ids
-            bg_color = '#E8A33D' if is_on else ('#232326' if ch_data["enabled"] else '#111111')
-            text_color = '#141416' if is_on else ('#8B8B8F' if ch_data["enabled"] else '#333333')
+        for i in range(1, CHANNEL_COUNT + 1):
+            is_on = i in active_ids
+            bg_color = '#2ECC71' if is_on else '#232326'
+            text_color = '#141416' if is_on else '#8B8B8F'
             
-            with grid_cols[i % 8]:
+            with grid_cols[(i - 1) % 8]:
                 st.markdown(
                     f"""
                     <div style="
@@ -286,7 +301,7 @@ def render_state(elapsed, active_ids):
                         background:{bg_color}; color:{text_color};
                         font-family:monospace; font-weight:600;
                     ">
-                        CH {ch_data['id']:02d}<br>{'ON' if is_on else 'off'}
+                        CH {i:02d}<br>{'ON' if is_on else 'off'}
                     </div>
                     """,
                     unsafe_allow_html=True,
