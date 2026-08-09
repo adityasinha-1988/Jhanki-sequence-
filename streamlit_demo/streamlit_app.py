@@ -1,4 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v4, Multiple Blocks & Live Sync)"""
+"""Jhanki Sequencer — Streamlit Simulator (v5, Global Sequence Loop)"""
 
 import time
 import matplotlib.pyplot as plt
@@ -13,7 +13,6 @@ st.set_page_config(page_title="Jhanki Sequencer", layout="wide")
 # --------------------------------------------------------------------------
 
 if "channels" not in st.session_state:
-    # Har channel ke liye ab ek dynamic 'blocks' list hai
     st.session_state.channels = [
         {
             "id": i + 1, 
@@ -23,6 +22,10 @@ if "channels" not in st.session_state:
     ]
 if "duration" not in st.session_state:
     st.session_state.duration = 60.0
+if "global_loop_enable" not in st.session_state:
+    st.session_state.global_loop_enable = False
+if "global_loop_count" not in st.session_state:
+    st.session_state.global_loop_count = 2
 if "running" not in st.session_state:
     st.session_state.running = False
 if "start_time" not in st.session_state:
@@ -38,19 +41,42 @@ st.title("🎛️ Jhanki Sequencer")
 # 1. Global Settings
 # --------------------------------------------------------------------------
 
-duration = st.number_input(
-    "Base Sequence Duration (s)", 
-    min_value=1.0, 
-    value=st.session_state.duration, 
-    step=1.0, 
-    disabled=st.session_state.running
-)
+col_dur, col_loop_en, col_loop_cnt = st.columns(3)
+
+with col_dur:
+    duration = st.number_input(
+        "Base Sequence Duration (s)", 
+        min_value=1.0, 
+        value=st.session_state.duration, 
+        step=1.0, 
+        disabled=st.session_state.running
+    )
+
+with col_loop_en:
+    st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True) # Alignment spacer
+    global_loop_enable = st.toggle(
+        "Enable Global Sequence Loop", 
+        value=st.session_state.global_loop_enable, 
+        disabled=st.session_state.running
+    )
+
+with col_loop_cnt:
+    global_loop_count = st.number_input(
+        "Total Loop Count", 
+        min_value=1, 
+        value=st.session_state.global_loop_count, 
+        step=1, 
+        disabled=st.session_state.running or not global_loop_enable
+    )
+
 st.session_state.duration = duration
+st.session_state.global_loop_enable = global_loop_enable
+st.session_state.global_loop_count = global_loop_count
 
 st.divider()
 
 # --------------------------------------------------------------------------
-# 2. Centralized Channel Controller (Placed ABOVE Preview for instant updates)
+# 2. Centralized Channel Controller
 # --------------------------------------------------------------------------
 st.subheader("Channel Controller")
 
@@ -62,7 +88,6 @@ selected_ch_id = st.radio(
     disabled=st.session_state.running
 )
 
-# Fetch selected channel
 ch = next(c for c in st.session_state.channels if c["id"] == selected_ch_id)
 
 with st.container(border=True):
@@ -72,7 +97,6 @@ with st.container(border=True):
     if ch["enabled"]:
         st.caption("Aap is channel ke liye multiple custom ON/OFF blocks define kar sakte hain.")
         
-        # Iterate over dynamic blocks
         for idx, blk in enumerate(ch["blocks"]):
             col_slider, col_btn = st.columns([10, 1])
             
@@ -93,7 +117,6 @@ with st.container(border=True):
                 st.caption(f"ON Time: {lo:.1f}s | OFF Time: {hi:.1f}s")
                 
             with col_btn:
-                # Add spacing to align delete button with slider
                 st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True)
                 if st.button("❌", key=f"del_{ch['id']}_{idx}", disabled=st.session_state.running):
                     if len(ch["blocks"]) > 1:
@@ -111,18 +134,28 @@ st.divider()
 # --------------------------------------------------------------------------
 # 3. Compute Active Windows & Render Preview (Gantt Chart)
 # --------------------------------------------------------------------------
-all_windows = []
-dynamic_max_duration = duration
+base_windows = []
 
-# Combine all blocks across all enabled channels
+# Collect base windows
 for ch_data in st.session_state.channels:
     if ch_data["enabled"]:
         for blk in ch_data["blocks"]:
             if blk["end"] > blk["start"]:
-                all_windows.append({"id": ch_data["id"], "start": blk["start"], "end": blk["end"]})
-                dynamic_max_duration = max(dynamic_max_duration, blk["end"])
+                base_windows.append({"id": ch_data["id"], "start": blk["start"], "end": blk["end"]})
 
-max_duration = dynamic_max_duration
+# Apply global loop logic
+all_windows = []
+loop_iterations = global_loop_count if global_loop_enable else 1
+max_duration = duration * loop_iterations
+
+for iteration in range(loop_iterations):
+    offset = iteration * duration
+    for w in base_windows:
+        all_windows.append({
+            "id": w["id"],
+            "start": w["start"] + offset,
+            "end": w["end"] + offset
+        })
 
 st.subheader("Sequence Preview")
 
@@ -147,6 +180,12 @@ else:
     ax.tick_params(colors="#8B8B8F")
     for spine in ax.spines.values():
         spine.set_color("#3A3A3E")
+    
+    # Add vertical lines to denote loop cycles
+    if global_loop_enable and loop_iterations > 1:
+        for i in range(1, loop_iterations):
+            ax.axvline(x=i * duration, color="#555555", linestyle="--", alpha=0.7)
+
     ax.set_xlim(0, max_duration)
     ax.grid(axis="x", color="#2A2A2E", linewidth=0.5)
     st.pyplot(fig, use_container_width=True)
@@ -207,7 +246,12 @@ def log_transitions(elapsed, active_ids):
 def render_state(elapsed, active_ids):
     with status_placeholder.container():
         if st.session_state.running:
-            st.success(f"Running — {elapsed:.1f}s / {max_duration:.0f}s")
+            # Display current loop cycle if looping is active
+            if global_loop_enable:
+                current_loop = min(int(elapsed // duration) + 1, loop_iterations)
+                st.success(f"Running — Loop {current_loop}/{loop_iterations} | Time: {elapsed:.1f}s / {max_duration:.0f}s")
+            else:
+                st.success(f"Running — Time: {elapsed:.1f}s / {max_duration:.0f}s")
         else:
             st.info("Idle")
 
