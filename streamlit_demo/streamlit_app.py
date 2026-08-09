@@ -1,4 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v10, Custom Channel Names)"""
+"""Jhanki Sequencer — Streamlit Simulator (v11, UI Fixes & Full Alias Sync)"""
 
 import time
 import json
@@ -64,7 +64,7 @@ with col_dur:
     st.session_state.canvas_size = canvas_size
 
 with col_loop_en:
-    st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True)
+    st.write("") # Spacer replacing the div to fix the desktop click bug
     global_loop_enable = st.toggle(
         "Enable Global Loop", 
         value=bool(st.session_state.global_loop_enable),
@@ -107,6 +107,24 @@ with st.expander("📝 Rename Channels", expanded=False):
 st.divider()
 
 # --------------------------------------------------------------------------
+# Dynamic Channel Mapping Logic
+# --------------------------------------------------------------------------
+current_mapping = {
+    hw: f"{hw} | {name}" if hw != name else hw 
+    for hw, name in st.session_state.channel_aliases.items()
+}
+
+def update_channel_display(val):
+    if pd.isna(val): return val
+    val_str = str(val)
+    if val_str.startswith("CH ") and len(val_str) >= 5:
+        hw_id = val_str[:5]
+        return current_mapping.get(hw_id, val_str)
+    return val_str
+
+st.session_state.sequence_df["Channel"] = st.session_state.sequence_df["Channel"].apply(update_channel_display)
+
+# --------------------------------------------------------------------------
 # 2. Centralized Sequence Editor (Inline Table)
 # --------------------------------------------------------------------------
 st.subheader("Sequence Editor")
@@ -118,7 +136,7 @@ edited_df = st.data_editor(
     column_config={
         "Channel": st.column_config.SelectboxColumn(
             "Channel",
-            options=[f"CH {i:02d}" for i in range(1, CHANNEL_COUNT + 1)],
+            options=list(current_mapping.values()),
             required=True
         ),
         "Start (s)": st.column_config.NumberColumn(
@@ -206,9 +224,9 @@ for _, row in edited_df.iterrows():
     start = float(row["Start (s)"])
     end = float(row["End (s)"])
     
-    if "CH" in ch_str and end > start:
+    if ch_str.startswith("CH ") and len(ch_str) >= 5 and end > start:
         try:
-            ch_id = int(ch_str.replace("CH ", ""))
+            ch_id = int(ch_str[:5].replace("CH ", ""))
             base_windows.append({"id": ch_id, "start": start, "end": end})
         except ValueError:
             pass
@@ -397,4 +415,4 @@ if st.session_state.running and st.session_state.start_time is not None:
         st.rerun()
 else:
     render_state(0.0, set())
-k
+    
