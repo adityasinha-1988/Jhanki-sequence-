@@ -1,7 +1,4 @@
-"""Jhanki Sequencer — Streamlit Simulator (v2, slider UI + verification)
-------------------------------------------------------------------------
-Software-only demo of the 16-channel relay sequencer.
-"""
+"""Jhanki Sequencer — Streamlit Simulator (v3, Centralized Control UI)"""
 
 import time
 import matplotlib.pyplot as plt
@@ -9,15 +6,24 @@ import streamlit as st
 
 CHANNEL_COUNT = 16
 
-st.set_page_config(page_title="Jhanki Sequencer — Simulator", layout="wide")
+st.set_page_config(page_title="Jhanki Sequencer", layout="wide")
 
 # --------------------------------------------------------------------------
-# State
+# State Initialization
 # --------------------------------------------------------------------------
 
 if "channels" not in st.session_state:
+    # Har channel ke liye individual state store hogi
     st.session_state.channels = [
-        {"id": i + 1, "start": 0.0, "end": 0.0} for i in range(CHANNEL_COUNT)
+        {
+            "id": i + 1, 
+            "enabled": True,
+            "start": 0.0, 
+            "end": 0.0,
+            "loop_enable": False,
+            "loop_count": 2,
+            "loop_gap": 1.0
+        } for i in range(CHANNEL_COUNT)
     ]
 if "duration" not in st.session_state:
     st.session_state.duration = 60.0
@@ -30,100 +36,37 @@ if "prev_active" not in st.session_state:
 if "event_log" not in st.session_state:
     st.session_state.event_log = []
 
-# Loop States
-if "loop_enable" not in st.session_state:
-    st.session_state.loop_enable = False
-if "loop_channel" not in st.session_state:
-    st.session_state.loop_channel = 1
-if "loop_count" not in st.session_state:
-    st.session_state.loop_count = 2
-if "loop_gap" not in st.session_state:
-    st.session_state.loop_gap = 1.0
+st.title("🎛️ Jhanki Sequencer")
 
-st.title("🎛️ Jhanki Sequencer — Simulator")
-st.caption(
-    "Software-only demo. No real relays switch here — this mirrors the "
-    "ON/OFF timeline logic your ESP32 + MCP23017 rig executes for real."
+# --------------------------------------------------------------------------
+# 1. Global Settings & Pre-calculations
+# --------------------------------------------------------------------------
+
+duration = st.number_input(
+    "Base Sequence Duration (s)", 
+    min_value=1.0, 
+    value=st.session_state.duration, 
+    step=1.0, 
+    disabled=st.session_state.running
 )
+st.session_state.duration = duration
 
-# --------------------------------------------------------------------------
-# 1. Timeline range control & Grid Layout
-# --------------------------------------------------------------------------
-
-st.session_state.duration = st.number_input(
-    "Sequence duration (seconds) — sets the base slider range below",
-    min_value=1.0,
-    value=st.session_state.duration,
-    step=1.0,
-    disabled=st.session_state.running,
-)
-duration = st.session_state.duration
-
-st.subheader("Channel timing")
-st.caption("Drag the slider to set ON (start) and OFF (end) times.")
-
-# 2-Column Grid Implementation
-cols = st.columns(2)
-
-for i, ch in enumerate(st.session_state.channels):
-    ch["start"] = min(ch["start"], duration)
-    ch["end"] = min(ch["end"], duration)
-    
-    with cols[i % 2]:
-        st.markdown(f"**Channel {ch['id']:02d}**")
-        lo, hi = st.slider(
-            f"Timing for Channel {ch['id']:02d}",
-            min_value=0.0,
-            max_value=float(duration),
-            value=(float(ch["start"]), float(ch["end"])),
-            step=0.5,
-            key=f"slider_{ch['id']}",
-            disabled=st.session_state.running,
-            label_visibility="collapsed"
-        )
-        ch["start"], ch["end"] = lo, hi
-        st.caption(f"ON: {lo:.1f}s | OFF: {hi:.1f}s")
-        st.write("") # Spacer
-
-st.divider()
-
-# --------------------------------------------------------------------------
-# 2. Loop Configuration
-# --------------------------------------------------------------------------
-
-st.subheader("Loop Settings")
-l_col1, l_col2, l_col3, l_col4 = st.columns(4)
-
-with l_col1:
-    loop_enable = st.checkbox("Enable Loop", value=st.session_state.loop_enable, disabled=st.session_state.running)
-with l_col2:
-    loop_channel = st.selectbox("Select Channel", [c['id'] for c in st.session_state.channels], index=st.session_state.loop_channel-1, disabled=st.session_state.running or not loop_enable)
-with l_col3:
-    loop_count = st.number_input("Loop Total Count", min_value=1, value=st.session_state.loop_count, disabled=st.session_state.running or not loop_enable)
-with l_col4:
-    loop_gap = st.number_input("Gap Between Loops (s)", min_value=0.0, value=st.session_state.loop_gap, step=0.5, disabled=st.session_state.running or not loop_enable)
-
-st.session_state.loop_enable = loop_enable
-st.session_state.loop_channel = loop_channel
-st.session_state.loop_count = loop_count
-st.session_state.loop_gap = loop_gap
-
-# Calculate active sequence windows dynamically based on loop settings
+# Calculate active windows for preview and execution
 all_windows = []
 dynamic_max_duration = duration
 
 for ch in st.session_state.channels:
-    if ch["end"] > ch["start"]:
-        # Add the base sequence window
+    if ch["enabled"] and ch["end"] > ch["start"]:
+        # Base window
         all_windows.append({"id": ch["id"], "start": ch["start"], "end": ch["end"]})
         dynamic_max_duration = max(dynamic_max_duration, ch["end"])
         
-        # Add looped windows if applicable
-        if loop_enable and ch["id"] == loop_channel:
+        # Loop windows
+        if ch["loop_enable"]:
             curr_end = ch["end"]
             win_dur = ch["end"] - ch["start"]
-            for _ in range(loop_count - 1):
-                n_start = curr_end + loop_gap
+            for _ in range(ch["loop_count"] - 1):
+                n_start = curr_end + ch["loop_gap"]
                 n_end = n_start + win_dur
                 all_windows.append({"id": ch["id"], "start": n_start, "end": n_end})
                 dynamic_max_duration = max(dynamic_max_duration, n_end)
@@ -131,24 +74,19 @@ for ch in st.session_state.channels:
 
 max_duration = dynamic_max_duration
 
-st.divider()
-
 # --------------------------------------------------------------------------
-# 3. Timeline preview (Gantt-style)
+# 2. Top Section: Visual Preview (Gantt Chart)
 # --------------------------------------------------------------------------
-
-st.subheader("Sequence preview")
+st.subheader("Sequence Preview")
 
 if not all_windows:
-    st.info("No channel has an ON window yet — set some times above.")
+    st.info("Koi sequence set nahi hai ya channels disabled hain.")
 else:
-    # Render chart scaling height based on unique active channels
     unique_active = set(w["id"] for w in all_windows)
-    fig, ax = plt.subplots(figsize=(10, max(3, 0.35 * len(unique_active))))
+    fig, ax = plt.subplots(figsize=(12, max(3, 0.4 * len(unique_active))))
     fig.patch.set_facecolor("#141416")
     ax.set_facecolor("#141416")
 
-    # Sort blocks for consistent visual stacking
     for w in sorted(all_windows, key=lambda x: x["id"]):
         ax.barh(
             y=f"CH {w['id']:02d}",
@@ -169,20 +107,82 @@ else:
 st.divider()
 
 # --------------------------------------------------------------------------
-# 4. Controls
+# 3. Middle Section: Centralized Channel Editor
 # --------------------------------------------------------------------------
+st.subheader("Channel Controller")
 
+# Horizontal Radio buttons for clean selection
+selected_ch_id = st.radio(
+    "Select Channel to Edit:", 
+    options=range(1, 17), 
+    horizontal=True, 
+    format_func=lambda x: f"CH {x:02d}",
+    disabled=st.session_state.running
+)
+
+# Fetch the selected channel dictionary
+ch = next(c for c in st.session_state.channels if c["id"] == selected_ch_id)
+
+with st.container(border=True):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"### Settings for Channel {ch['id']:02d}")
+        ch["enabled"] = st.toggle("Enable Channel", value=ch["enabled"], disabled=st.session_state.running)
+        
+        if ch["enabled"]:
+            # Clamp limits safely
+            ch["start"] = min(ch["start"], duration)
+            ch["end"] = min(ch["end"], duration)
+            
+            lo, hi = st.slider(
+                "ON / OFF Time",
+                min_value=0.0,
+                max_value=float(duration),
+                value=(float(ch["start"]), float(ch["end"])),
+                step=0.5,
+                disabled=st.session_state.running
+            )
+            ch["start"], ch["end"] = lo, hi
+            st.caption(f"ON Time: {lo:.1f}s | OFF Time: {hi:.1f}s")
+
+    with col2:
+        if ch["enabled"]:
+            st.markdown("### Loop Settings")
+            ch["loop_enable"] = st.toggle("Enable Loop for this Channel", value=ch["loop_enable"], disabled=st.session_state.running)
+            
+            if ch["loop_enable"]:
+                ch["loop_count"] = st.number_input(
+                    "Total Loop Count", 
+                    min_value=1, 
+                    value=ch["loop_count"], 
+                    disabled=st.session_state.running
+                )
+                ch["loop_gap"] = st.number_input(
+                    "Gap Between Loops (s)", 
+                    min_value=0.0, 
+                    value=ch["loop_gap"], 
+                    step=0.5,
+                    disabled=st.session_state.running
+                )
+
+st.divider()
+
+# --------------------------------------------------------------------------
+# 4. Controls & Execution Logic
+# --------------------------------------------------------------------------
 c1, c2, c3 = st.columns([1, 1, 3])
 with c1:
-    start_clicked = st.button("▶ Start sequence", disabled=st.session_state.running)
+    start_clicked = st.button("▶ Start sequence", disabled=st.session_state.running, use_container_width=True)
 with c2:
-    stop_clicked = st.button("⏹ Stop all")
+    stop_clicked = st.button("⏹ Stop all", use_container_width=True)
 
 if start_clicked and max_duration > 0:
     st.session_state.running = True
     st.session_state.start_time = time.monotonic()
     st.session_state.prev_active = set()
     st.session_state.event_log = []
+    st.rerun()
 
 if stop_clicked:
     if st.session_state.running and st.session_state.prev_active:
@@ -192,12 +192,12 @@ if stop_clicked:
     st.session_state.running = False
     st.session_state.start_time = None
     st.session_state.prev_active = set()
+    st.rerun()
 
 # --------------------------------------------------------------------------
-# 5. Live playback + event log
+# 5. Live State Render
 # --------------------------------------------------------------------------
-
-st.subheader("Live state")
+st.subheader("Live execution state")
 status_placeholder = st.empty()
 progress_placeholder = st.empty()
 grid_placeholder = st.empty()
@@ -232,22 +232,21 @@ def render_state(elapsed, active_ids):
 
     with grid_placeholder.container():
         grid_cols = st.columns(8)
-        for i, ch in enumerate(st.session_state.channels):
-            is_on = ch["id"] in active_ids
+        for i, ch_data in enumerate(st.session_state.channels):
+            is_on = ch_data["id"] in active_ids
+            # Dim the UI if channel is completely disabled
+            bg_color = '#E8A33D' if is_on else ('#232326' if ch_data["enabled"] else '#111111')
+            text_color = '#141416' if is_on else ('#8B8B8F' if ch_data["enabled"] else '#333333')
+            
             with grid_cols[i % 8]:
                 st.markdown(
                     f"""
                     <div style="
-                        border-radius:8px;
-                        padding:10px;
-                        text-align:center;
-                        margin-bottom:8px;
-                        background:{'#E8A33D' if is_on else '#232326'};
-                        color:{'#141416' if is_on else '#8B8B8F'};
-                        font-family:monospace;
-                        font-weight:600;
+                        border-radius:8px; padding:10px; text-align:center; margin-bottom:8px;
+                        background:{bg_color}; color:{text_color};
+                        font-family:monospace; font-weight:600;
                     ">
-                        CH {ch['id']:02d}<br>{'ON' if is_on else 'off'}
+                        CH {ch_data['id']:02d}<br>{'ON' if is_on else 'off'}
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -258,7 +257,7 @@ def render_state(elapsed, active_ids):
             if st.session_state.event_log:
                 st.code("\n".join(st.session_state.event_log[-40:]), language=None)
             else:
-                st.caption("No transitions yet — start the sequence to see ON/OFF timestamps here.")
+                st.caption("No transitions yet.")
 
 if st.session_state.running and st.session_state.start_time is not None:
     elapsed = time.monotonic() - st.session_state.start_time
@@ -277,13 +276,4 @@ if st.session_state.running and st.session_state.start_time is not None:
         st.rerun()
 else:
     render_state(0.0, set())
-
-st.divider()
-st.caption(
-    "This simulator mirrors the timing logic of the real FastAPI backend "
-    "(`backend/main.py`), which sends actual HTTP GET commands to an ESP32 "
-    "running MicroPython + MCP23017 to switch physical relays. Use the "
-    "preview chart to sanity-check overlaps and the event log to confirm "
-    "transitions fire at the right second before wiring up real motors."
-)
-
+    
