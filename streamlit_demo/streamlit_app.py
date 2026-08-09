@@ -1,4 +1,4 @@
-Jhanki Sequencer â€” Streamlit Simulator (v2, slider UI + verification)
+"""Jhanki Sequencer â€” Streamlit Simulator (v2, slider UI + verification)
 ------------------------------------------------------------------------
 Software-only demo of the 16-channel relay sequencer.
 
