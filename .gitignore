@@ -1,0 +1,7 @@
+## `.gitignore`
+node_modules/
+pycache/
+*.pyc
+.venv/
+dist/
+.env
