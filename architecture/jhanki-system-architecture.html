@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jhanki Stage Automation — System Architecture &amp; Power-Domain Partition</title>
+<style>
+:root{
+  --paper:#f6f1e6; --panel:#fdfaf3; --ink:#211d15; --muted:#6b6353;
+  --rail:#191510; --railtext:#cfc5ae; --gold:#b8860b; --gold-soft:#e8d9b0;
+  --ac:#b3352b; --ac-tint:#f7e6e3;
+  --dc:#c0801a; --dc-tint:#f8efdd;
+  --sig:#2f5f8f; --sig-tint:#e4edf5;
+  --earth:#2e7d4f;
+  --barrier:#6f4e9c;
+  --line:#d8cfba;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans","Helvetica Neue",-apple-system,Segoe UI,Roboto,sans-serif;
+  font-size:15.5px;line-height:1.62;}
+code,pre,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;}
+a{color:var(--sig)}
+.layout{display:flex;min-height:100vh}
+nav.rail{background:var(--rail);color:var(--railtext);width:232px;flex:0 0 232px;
+  padding:26px 18px;position:sticky;top:0;height:100vh;overflow-y:auto}
+nav.rail .brand{color:var(--gold);font-weight:600;font-size:14px;letter-spacing:.14em;
+  text-transform:uppercase;margin-bottom:4px}
+nav.rail .sub{font-size:11.5px;color:#8f8672;margin-bottom:22px;line-height:1.45}
+nav.rail a{display:block;color:var(--railtext);text-decoration:none;font-size:13px;
+  padding:6px 8px;border-left:2px solid transparent;margin-bottom:2px}
+nav.rail a:hover{color:#fff;border-left-color:var(--gold)}
+nav.rail .grp{margin-top:14px;font-size:10.5px;letter-spacing:.12em;color:#7a715c;
+  text-transform:uppercase}
+main{flex:1;min-width:0;padding:34px 44px 90px;max-width:1080px}
+h1{font-size:29px;line-height:1.25;margin:0 0 6px;font-weight:650}
+h2{font-size:21px;margin:52px 0 10px;padding-top:10px;border-top:3px solid var(--ink);font-weight:650}
+h2 .sec{color:var(--gold);font-family:"IBM Plex Mono",monospace;font-size:15px;margin-right:10px}
+h3{font-size:16.5px;margin:26px 0 6px;font-weight:640}
+p{margin:9px 0}
+.kicker{color:var(--gold);font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;
+  font-weight:600;margin-bottom:8px}
+.lede{font-size:16.5px;color:#41392a;max-width:70ch}
+.verdict{background:var(--panel);border:1.5px solid var(--ink);border-left:8px solid var(--gold);
+  padding:16px 20px;margin:24px 0 8px;box-shadow:3px 3px 0 var(--gold-soft)}
+.verdict .v-h{font-weight:650;letter-spacing:.05em;font-size:13px;text-transform:uppercase;
+  color:var(--gold);margin-bottom:6px}
+.figure{background:var(--panel);border:1px solid var(--line);padding:14px 14px 8px;margin:18px 0}
+.figure svg{width:100%;height:auto;display:block}
+.figcap{font-size:12.8px;color:var(--muted);margin-top:8px;border-top:1px dashed var(--line);
+  padding-top:7px}
+.figcap b{color:var(--ink)}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.8px;background:var(--panel)}
+th{background:var(--rail);color:var(--gold-soft);text-align:left;padding:7px 10px;
+  font-weight:600;font-size:12.5px;letter-spacing:.04em}
+td{border:1px solid var(--line);padding:6px 10px;vertical-align:top}
+tr:nth-child(even) td{background:#f9f5ea}
+.dom{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:700;
+  padding:1px 7px;border-radius:3px;color:#fff}
+.d0{background:#5a524a}.d1{background:var(--sig)}.d2{background:var(--dc)}
+.d3{background:var(--ac)}.d4{background:#8a4a2b}.bar{background:var(--barrier)}
+.warn{background:var(--ac-tint);border:1px solid var(--ac);border-left-width:6px;
+  padding:12px 16px;margin:16px 0;font-size:14px}
+.note{background:var(--sig-tint);border:1px solid var(--sig);border-left-width:6px;
+  padding:12px 16px;margin:16px 0;font-size:14px}
+pre{background:var(--rail);color:#e8e0cc;padding:14px 16px;overflow-x:auto;font-size:12.8px;
+  line-height:1.55;border-left:4px solid var(--gold)}
+pre .c{color:#8f8672}
+.check{list-style:none;padding-left:0;counter-reset:ck}
+.check li{counter-increment:ck;margin:10px 0;padding-left:44px;position:relative;max-width:78ch}
+.check li::before{content:counter(ck,decimal-leading-zero);position:absolute;left:0;top:1px;
+  font-family:"IBM Plex Mono",monospace;font-weight:700;color:var(--gold);
+  border:1.5px solid var(--gold);padding:0 5px;font-size:12.5px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;margin:6px 0 2px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:26px;height:0;border-top:3px solid}
+.sw.ac{border-color:var(--ac)} .sw.dc{border-color:var(--dc)} .sw.sig{border-color:var(--sig)}
+.sw.earth{border-color:var(--earth)} .sw.bar{border-color:var(--barrier);border-top-style:dashed}
+@media(max-width:860px){
+  .layout{flex-direction:column}
+  nav.rail{width:100%;flex:none;height:auto;position:static;display:flex;flex-wrap:wrap;
+    gap:2px;padding:14px}
+  nav.rail .brand,nav.rail .sub{width:100%}
+  nav.rail .grp{display:none}
+  nav.rail a{border-left:none;border-bottom:2px solid transparent;padding:4px 7px}
+  main{padding:22px 16px 70px}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="rail">
+  <div class="brand">Jhanki Automation</div>
+  <div class="sub">System architecture &amp; power-domain partition · v1.0 · Aug 2026</div>
+  <a href="#verdict">Verdict</a>
+  <div class="grp">Architecture</div>
+  <a href="#master">1 · Master system diagram</a>
+  <a href="#domains">2 · Domains &amp; barriers</a>
+  <a href="#acline">3 · AC one-line</a>
+  <div class="grp">Wiring</div>
+  <a href="#control">4 · Control core &amp; JD-VCC split</a>
+  <a href="#loads">5 · Load channels &amp; drive motor</a>
+  <a href="#sense">6 · Track sensing (optional)</a>
+  <a href="#enclosure">7 · Enclosure &amp; earthing</a>
+  <div class="grp">Numbers</div>
+  <a href="#budget">8 · Power &amp; load budget</a>
+  <a href="#fmea">9 · Failure-mode map</a>
+  <div class="grp">Run it</div>
+  <a href="#firmware">10 · Firmware guard-rails</a>
+  <a href="#bringup">11 · Bring-up checklist</a>
+  <a href="#bom">12 · BOM delta</a>
+</nav>
+<main>
+
+<div class="kicker">Stage automation · 12 × 6 ft oval chain track · 16 switched stations · ESP32 + Blynk</div>
+<h1>Jhanki System Architecture with Isolated Power Domains</h1>
+<p class="lede">Everything the Gemini thread specified — ESP32, two 8-channel relay modules, 5 V 5 A supply,
+Blynk timing control, chain-drive trolley track — reorganised into five power domains separated by three
+galvanic isolation barriers, so that whatever mannequin load is plugged into whichever track station,
+no fault or transient has a conductive path back into the controller.</p>
+
+<div class="verdict" id="verdict">
+  <div class="v-h">Verdict — the three rules that keep the ESP32 alive</div>
+  <p style="margin:4px 0"><b>1 · Two DC supplies, zero shared ground.</b> ESP32 runs on its own 5 V 2 A adapter (PSU-1).
+  Relay <i>coils</i> run on the 5 V 5 A SMPS (PSU-2). Pull the <b>JD-VCC jumper</b> on both relay boards so the
+  optocoupler is the only thing crossing between them — no ground wire between PSU-1 and PSU-2, ever.</p>
+  <p style="margin:4px 0"><b>2 · Two AC branches after one RCCB.</b> MCB-B feeds only the two DC supplies; MCB-A feeds only
+  the mannequin stations and drive motor, through an E-stop + master contactor. A stalled motor trips MCB-A;
+  the controller branch never blinks.</p>
+  <p style="margin:4px 0"><b>3 · Every inductive load gets a snubber, every channel gets a fuse.</b> Contact-side transients
+  are killed at the contact (RC snubber / MOV), not absorbed by the electronics. 2 A fuse per station bounds any
+  single mannequin fault.</p>
+</div>
+<div class="legend">
+  <span><span class="sw ac"></span>230 V AC</span>
+  <span><span class="sw dc"></span>DC power (coil / dirty)</span>
+  <span><span class="sw sig"></span>3V3 logic (clean)</span>
+  <span><span class="sw earth"></span>Protective earth</span>
+  <span><span class="sw bar"></span>Isolation barrier</span>
+</div>
+
+<h2 id="master"><span class="sec">§1</span>Master system diagram</h2>
+<p>One picture of the whole machine. Read left to right: mains enters once, splits into a
+<b>load branch</b> and an <b>electronics branch</b>; the electronics branch produces two DC rails that
+never touch; control intent crosses barrier <b>B1</b> as light (optocoupler), becomes coil current in the
+dirty domain, and crosses barrier <b>B2</b> as mechanical contact motion into the switched-AC domain.
+Track position information, if fitted, comes back only through barrier <b>B3</b>.</p>
+
+<div class="figure">
+<svg viewBox="0 0 1180 900" xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans,Helvetica,Arial,sans-serif">
+<defs>
+  <marker id="mAC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#b3352b"/></marker>
+  <marker id="mDC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#c0801a"/></marker>
+  <marker id="mSIG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2f5f8f"/></marker>
+  <marker id="mE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2e7d4f"/></marker>
+</defs>
+
+<!-- ======== domain regions ======== -->
+<rect x="14" y="34" width="180" height="520" rx="6" fill="#efeadd" stroke="#5a524a" stroke-dasharray="none"/>
+<text x="26" y="56" font-size="13" font-weight="700" fill="#5a524a">D0 · MAINS &amp; PROTECTION</text>
+
+<rect x="330" y="34" width="290" height="330" rx="6" fill="#e4edf5" stroke="#2f5f8f"/>
+<text x="344" y="56" font-size="13" font-weight="700" fill="#2f5f8f">D1 · CONTROL CORE (clean 3V3/5V)</text>
+
+<rect x="672" y="34" width="200" height="330" rx="6" fill="#f8efdd" stroke="#c0801a"/>
+<text x="684" y="56" font-size="13" font-weight="700" fill="#c0801a">D2 · COIL DOMAIN (dirty 5V)</text>
+
+<rect x="924" y="34" width="242" height="640" rx="6" fill="#f7e6e3" stroke="#b3352b"/>
+<text x="938" y="56" font-size="13" font-weight="700" fill="#b3352b">D3 · SWITCHED 230 V LOADS</text>
+
+<rect x="330" y="700" width="542" height="186" rx="6" fill="#f1e4da" stroke="#8a4a2b"/>
+<text x="344" y="722" font-size="13" font-weight="700" fill="#8a4a2b">D4 · TRACK MECHANICALS (12 × 6 ft oval, chain loop)</text>
+
+<!-- ======== barriers ======== -->
+<line x1="646" y1="34" x2="646" y2="364" stroke="#6f4e9c" stroke-width="3" stroke-dasharray="9 6"/>
+<text x="646" y="392" font-size="12.5" font-weight="700" fill="#6f4e9c" text-anchor="middle">B1 · OPTOCOUPLER ×16</text>
+<text x="646" y="408" font-size="11" fill="#6f4e9c" text-anchor="middle">JD-VCC jumper removed → no shared GND</text>
+
+<line x1="898" y1="34" x2="898" y2="674" stroke="#6f4e9c" stroke-width="3" stroke-dasharray="9 6"/>
+<text x="898" y="700" font-size="12.5" font-weight="700" fill="#6f4e9c" text-anchor="middle">B2 · RELAY CONTACT GAP</text>
+<text x="898" y="716" font-size="11" fill="#6f4e9c" text-anchor="middle">coil↔contact ≥ 1.5 kVAC</text>
+
+<!-- ======== D0 mains chain ======== -->
+<rect x="44" y="78" width="120" height="40" rx="4" fill="#fff" stroke="#211d15"/>
+<text x="104" y="95" font-size="12" text-anchor="middle">230 V 50 Hz</text>
+<text x="104" y="110" font-size="12" text-anchor="middle">16 A plug + switch</text>
+
+<rect x="44" y="150" width="120" height="44" rx="4" fill="#fff" stroke="#211d15"/>
+<text x="104" y="168" font-size="12.5" font-weight="700" text-anchor="middle">RCCB 2P</text>
+<text x="104" y="184" font-size="11.5" text-anchor="middle">25 A · 30 mA</text>
+
+<rect x="44" y="238" width="120" height="40" rx="4" fill="#fff" stroke="#2f5f8f"/>
+<text x="104" y="255" font-size="12.5" font-weight="700" text-anchor="middle" fill="#2f5f8f">MCB-B · C6</text>
+<text x="104" y="270" font-size="11" text-anchor="middle">electronics branch</text>
+
+<rect x="44" y="330" width="120" height="40" rx="4" fill="#fff" stroke="#b3352b"/>
+<text x="104" y="347" font-size="12.5" font-weight="700" text-anchor="middle" fill="#b3352b">MCB-A · C10</text>
+<text x="104" y="362" font-size="11" text-anchor="middle">load branch</text>
+
+<rect x="34" y="420" width="140" height="52" rx="4" fill="#fff" stroke="#b3352b"/>
+<text x="104" y="440" font-size="12" font-weight="700" text-anchor="middle" fill="#b3352b">E-STOP (NC)</text>
+<text x="104" y="455" font-size="11.5" text-anchor="middle">→ contactor K1 coil</text>
+<text x="104" y="467" font-size="10.5" text-anchor="middle" fill="#6b6353">hardware chain, no software</text>
+
+<rect x="44" y="496" width="120" height="42" rx="4" fill="#fff" stroke="#b3352b"/>
+<text x="104" y="513" font-size="12.5" font-weight="700" text-anchor="middle" fill="#b3352b">K1 contactor</text>
+<text x="104" y="528" font-size="11" text-anchor="middle">2P · 20 A</text>
+
+<line x1="104" y1="118" x2="104" y2="150" stroke="#b3352b" stroke-width="2.5" marker-end="url(#mAC)"/>
+<line x1="104" y1="194" x2="104" y2="238" stroke="#b3352b" stroke-width="2.5" marker-end="url(#mAC)"/>
+<line x1="80" y1="194" x2="80" y2="322" stroke="#b3352b" stroke-width="2.5"/>
+<line x1="80" y1="322" x2="94" y2="330" stroke="#b3352b" stroke-width="2.5" marker-end="url(#mAC)"/>
+<line x1="104" y1="370" x2="104" y2="420" stroke="#b3352b" stroke-width="2.5" marker-end="url(#mAC)"/>
+<line x1="104" y1="472" x2="104" y2="496" stroke="#b3352b" stroke-width="2.5" marker-end="url(#mAC)"/>
+
+<!-- live rail from K1 to D3 -->
+<path d="M104 538 L104 660 L938 660" fill="none" stroke="#b3352b" stroke-width="3.5"/>
+<text x="520" y="652" font-size="12" fill="#b3352b" font-weight="600">switched LIVE rail (after E-stop / K1) → feeds all 16 channel fuses + K2</text>
+
+<!-- ======== electronics branch → PSUs ======== -->
+<rect x="216" y="120" width="86" height="54" rx="4" fill="#fff" stroke="#2f5f8f"/>
+<text x="259" y="141" font-size="12" font-weight="700" text-anchor="middle" fill="#2f5f8f">PSU-1</text>
+<text x="259" y="156" font-size="11" text-anchor="middle">5 V · 2 A</text>
+<text x="259" y="168" font-size="10" text-anchor="middle" fill="#6b6353">adapter</text>
+
+<rect x="216" y="220" width="86" height="54" rx="4" fill="#fff" stroke="#c0801a"/>
+<text x="259" y="241" font-size="12" font-weight="700" text-anchor="middle" fill="#c0801a">PSU-2</text>
+<text x="259" y="256" font-size="11" text-anchor="middle">5 V · 5 A</text>
+<text x="259" y="268" font-size="10" text-anchor="middle" fill="#6b6353">SMPS (coils)</text>
+
+<line x1="164" y1="258" x2="216" y2="147" stroke="#b3352b" stroke-width="2" marker-end="url(#mAC)"/>
+<line x1="164" y1="262" x2="216" y2="247" stroke="#b3352b" stroke-width="2" marker-end="url(#mAC)"/>
+
+<line x1="302" y1="147" x2="352" y2="147" stroke="#2f5f8f" stroke-width="2.5" marker-end="url(#mSIG)"/>
+<text x="326" y="139" font-size="10.5" fill="#2f5f8f" text-anchor="middle">5 V</text>
+<path d="M302 247 L322 247 L322 470 L672 470 L672 320 L684 320" fill="none" stroke="#c0801a" stroke-width="2.5" marker-end="url(#mDC)"/>
+<text x="470" y="462" font-size="11.5" fill="#c0801a">PSU-2 +5 V / GND → JD-VCC + GND only (bypasses D1 entirely)</text>
+
+<!-- ======== D1 contents ======== -->
+<rect x="352" y="96" width="150" height="150" rx="6" fill="#fff" stroke="#2f5f8f" stroke-width="1.6"/>
+<text x="427" y="120" font-size="13.5" font-weight="700" text-anchor="middle" fill="#2f5f8f">ESP32</text>
+<text x="427" y="136" font-size="11" text-anchor="middle">NodeMCU-32S</text>
+<text x="427" y="158" font-size="11" text-anchor="middle">16 × GPIO out</text>
+<text x="427" y="173" font-size="11" text-anchor="middle">2 × opto inputs</text>
+<text x="427" y="188" font-size="11" text-anchor="middle">Wi-Fi · NVS schedule</text>
+<text x="427" y="210" font-size="10.5" text-anchor="middle" fill="#6b6353">GND stays inside D1 —</text>
+<text x="427" y="223" font-size="10.5" text-anchor="middle" fill="#6b6353">never wired to PSU-2</text>
+
+<rect x="352" y="268" width="150" height="66" rx="6" fill="#fff" stroke="#2f5f8f" stroke-dasharray="4 3"/>
+<text x="427" y="290" font-size="12" font-weight="600" text-anchor="middle" fill="#2f5f8f">10 k pull-ups ×16</text>
+<text x="427" y="305" font-size="10.5" text-anchor="middle" fill="#6b6353">to opto-VCC: crash or</text>
+<text x="427" y="318" font-size="10.5" text-anchor="middle" fill="#6b6353">reboot ⇒ all relays OFF</text>
+
+<ellipse cx="560" cy="112" rx="46" ry="24" fill="#fff" stroke="#2f5f8f" stroke-dasharray="3 3"/>
+<text x="560" y="109" font-size="11" text-anchor="middle" fill="#2f5f8f">Blynk cloud</text>
+<text x="560" y="123" font-size="10" text-anchor="middle" fill="#6b6353">timing editor</text>
+<line x1="502" y1="140" x2="536" y2="128" stroke="#2f5f8f" stroke-width="1.6" stroke-dasharray="3 3"/>
+
+<!-- 16 control lines crossing B1 -->
+<line x1="502" y1="180" x2="694" y2="180" stroke="#2f5f8f" stroke-width="5" marker-end="url(#mSIG)"/>
+<text x="598" y="170" font-size="11.5" fill="#2f5f8f" text-anchor="middle" font-weight="600">IN1…IN16 · 3V3 active-LOW</text>
+<line x1="502" y1="230" x2="590" y2="230" stroke="#2f5f8f" stroke-width="2.5" marker-end="url(#mSIG)"/>
+<text x="547" y="222" font-size="10.5" fill="#2f5f8f" text-anchor="middle">opto-VCC (3V3)</text>
+<line x1="590" y1="230" x2="694" y2="230" stroke="#2f5f8f" stroke-width="2.5" marker-end="url(#mSIG)"/>
+
+<!-- ======== D2 contents ======== -->
+<rect x="694" y="96" width="156" height="108" rx="6" fill="#fff" stroke="#c0801a" stroke-width="1.6"/>
+<text x="772" y="118" font-size="12.5" font-weight="700" text-anchor="middle" fill="#c0801a">Relay board A</text>
+<text x="772" y="134" font-size="11" text-anchor="middle">8 ch · SRD-05 · opto</text>
+<text x="772" y="150" font-size="11" text-anchor="middle">CH1–CH8 (stations 1–8)</text>
+<text x="772" y="170" font-size="10.5" text-anchor="middle" fill="#b3352b" font-weight="700">JD-VCC jumper: OUT</text>
+<text x="772" y="186" font-size="10.5" text-anchor="middle" fill="#6b6353">coils fed by PSU-2</text>
+
+<rect x="694" y="222" width="156" height="108" rx="6" fill="#fff" stroke="#c0801a" stroke-width="1.6"/>
+<text x="772" y="244" font-size="12.5" font-weight="700" text-anchor="middle" fill="#c0801a">Relay board B</text>
+<text x="772" y="260" font-size="11" text-anchor="middle">8 ch · SRD-05 · opto</text>
+<text x="772" y="276" font-size="11" text-anchor="middle">CH9–15 stations · CH16 motor</text>
+<text x="772" y="296" font-size="10.5" text-anchor="middle" fill="#b3352b" font-weight="700">JD-VCC jumper: OUT</text>
+<text x="772" y="312" font-size="10.5" text-anchor="middle" fill="#6b6353">coils fed by PSU-2</text>
+
+<!-- contacts crossing B2 -->
+<line x1="850" y1="150" x2="938" y2="150" stroke="#c0801a" stroke-width="4" marker-end="url(#mDC)"/>
+<line x1="850" y1="276" x2="938" y2="276" stroke="#c0801a" stroke-width="4" marker-end="url(#mDC)"/>
+<text x="894" y="140" font-size="10.5" fill="#6f4e9c" text-anchor="middle" font-weight="700">COM/NO ×16</text>
+
+<!-- ======== D3 contents ======== -->
+<rect x="948" y="96" width="196" height="140" rx="6" fill="#fff" stroke="#b3352b"/>
+<text x="1046" y="118" font-size="12.5" font-weight="700" text-anchor="middle" fill="#b3352b">Channel strip ×15</text>
+<text x="1046" y="136" font-size="11" text-anchor="middle">fuse 2 A → RC snubber</text>
+<text x="1046" y="151" font-size="11" text-anchor="middle">→ 3-pin station socket</text>
+<text x="1046" y="171" font-size="10.5" text-anchor="middle" fill="#6b6353">L switched · N direct · PE</text>
+<text x="1046" y="191" font-size="10.5" text-anchor="middle" fill="#6b6353">mannequin motor + lights</text>
+<text x="1046" y="206" font-size="10.5" text-anchor="middle" fill="#6b6353">≤ 60 W per station</text>
+
+<rect x="948" y="266" width="196" height="96" rx="6" fill="#fff" stroke="#b3352b"/>
+<text x="1046" y="288" font-size="12.5" font-weight="700" text-anchor="middle" fill="#b3352b">CH16 → K2 coil</text>
+<text x="1046" y="304" font-size="11" text-anchor="middle">motor contactor 9–12 A</text>
+<text x="1046" y="319" font-size="11" text-anchor="middle">+ RC across K2 coil</text>
+<text x="1046" y="336" font-size="10.5" text-anchor="middle" fill="#6b6353">K2 coil supply also runs</text>
+<text x="1046" y="350" font-size="10.5" text-anchor="middle" fill="#6b6353">through the E-stop chain</text>
+
+<rect x="948" y="392" width="196" height="120" rx="6" fill="#fff" stroke="#b3352b"/>
+<text x="1046" y="414" font-size="12.5" font-weight="700" text-anchor="middle" fill="#b3352b">Drive motor</text>
+<text x="1046" y="430" font-size="11" text-anchor="middle">geared 1-φ ≤ 120 W</text>
+<text x="1046" y="445" font-size="11" text-anchor="middle">MOV 275 V across winding</text>
+<text x="1046" y="460" font-size="11" text-anchor="middle">frame bonded to PE</text>
+<text x="1046" y="480" font-size="10.5" text-anchor="middle" fill="#6b6353">via K2 main contacts</text>
+<text x="1046" y="495" font-size="10.5" text-anchor="middle" fill="#6b6353">from switched live rail</text>
+
+<line x1="1046" y1="362" x2="1046" y2="392" stroke="#b3352b" stroke-width="2.5" marker-end="url(#mAC)"/>
+
+<!-- motor to track -->
+<path d="M948 470 L820 470 L820 700" fill="none" stroke="#8a4a2b" stroke-width="3" marker-end="url(#mAC)"/>
+<text x="836" y="560" font-size="11" fill="#8a4a2b" transform="rotate(90 836 560)">shaft → drive sprocket</text>
+
+<!-- ======== D4 track glyph ======== -->
+<ellipse cx="600" cy="800" rx="230" ry="62" fill="none" stroke="#8a4a2b" stroke-width="6"/>
+<ellipse cx="600" cy="800" rx="196" ry="40" fill="none" stroke="#8a4a2b" stroke-width="1.6" stroke-dasharray="7 5"/>
+<circle cx="812" cy="800" r="15" fill="#fff" stroke="#8a4a2b" stroke-width="2.5"/>
+<text x="812" y="805" font-size="11" text-anchor="middle" fill="#8a4a2b" font-weight="700">M</text>
+<circle cx="392" cy="800" r="11" fill="#fff" stroke="#8a4a2b" stroke-width="2"/>
+<text x="392" y="836" font-size="10.5" text-anchor="middle" fill="#8a4a2b">idler</text>
+<rect x="560" y="726" width="56" height="24" rx="3" fill="#fff" stroke="#8a4a2b" stroke-width="2"/>
+<text x="588" y="742" font-size="10.5" text-anchor="middle" fill="#8a4a2b">trolley</text>
+<circle cx="472" cy="758" r="6" fill="#2f5f8f"/>
+<text x="452" y="748" font-size="10.5" fill="#2f5f8f">home sensor (§6)</text>
+<text x="600" y="874" font-size="11" text-anchor="middle" fill="#6b6353">chain loop under groove · 16 station sockets distributed along the perimeter (fed from D3)</text>
+
+<!-- B3 sensor path -->
+<path d="M472 752 L472 596 L392 596 L392 246 L400 246" fill="none" stroke="#2f5f8f" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#mSIG)"/>
+<line x1="352" y1="560" x2="512" y2="560" stroke="#6f4e9c" stroke-width="3" stroke-dasharray="9 6"/>
+<text x="432" y="548" font-size="11.5" fill="#6f4e9c" font-weight="700">B3 · opto input (optional)</text>
+
+<!-- earth bus -->
+<path d="M40 890 L1160 890" stroke="#2e7d4f" stroke-width="3.5"/>
+<text x="52" y="880" font-size="11.5" fill="#2e7d4f" font-weight="700">PE bus — bonds enclosure · N/PE bars · every station socket earth · motor frame · metal track &amp; trolleys</text>
+</svg>
+<div class="figcap"><b>Fig 1 — Master block diagram.</b> Purple dashed lines are the only crossings between
+domains: B1 is light inside an optocoupler (jumper removed ⇒ PSU-1 and PSU-2 share nothing), B2 is the
+relay's mechanical contact gap, B3 is an optocoupled sensor input. The switched live rail (bottom) exists
+only after the RCCB → MCB-A → E-stop → K1 chain, so one mushroom button de-energises every mannequin and
+the motor without asking the ESP32's permission.</div>
+</div>
+
+<h2 id="domains"><span class="sec">§2</span>Domains &amp; isolation barriers</h2>
+<p>The partition rule is simple: <b>a domain is a set of conductors that are allowed to share a fault.</b>
+Anything you'd be sad to lose together must sit in different domains, connected only through a barrier
+whose isolation rating exceeds the worst transient it can see.</p>
+<table>
+<tr><th style="width:90px">Domain</th><th>Contents</th><th>Supply</th><th>Reference</th><th>What can go wrong here</th></tr>
+<tr><td><span class="dom d0">D0</span></td><td>Plug, RCCB 30 mA, MCB-A (loads), MCB-B (electronics), N &amp; PE bars</td><td>230 V mains</td><td>PE</td><td>Overload, earth leakage — cleared by RCCB/MCBs</td></tr>
+<tr><td><span class="dom d1">D1</span></td><td>ESP32, opto-VCC rail, pull-up pack, sensor logic side, Wi-Fi/Blynk</td><td>PSU-1 · 5 V 2 A</td><td>GND-1 (floats)</td><td>Brownout, boot glitch — contained by pin map + init order (§10)</td></tr>
+<tr><td><span class="dom d2">D2</span></td><td>Relay coils + drivers on both boards (JD-VCC side)</td><td>PSU-2 · 5 V 5 A</td><td>GND-2 (floats)</td><td>16-coil inrush step, flyback — PSU-2 headroom absorbs it; D1 never sees it</td></tr>
+<tr><td><span class="dom d3">D3</span></td><td>Switched live rail, 16 fuses, snubbers, station sockets, K2 + motor circuit</td><td>230 V via K1</td><td>N / PE</td><td>Stall, short, arc, inductive kick — fuse + snubber per channel; MCB-A backs up</td></tr>
+<tr><td><span class="dom d4">D4</span></td><td>Track steel, chain, trolleys, motor frame, mannequin armatures</td><td>—</td><td>PE bonded</td><td>Insulation failure energising metalwork — PE bond + RCCB trip &lt; 40 ms</td></tr>
+</table>
+<table>
+<tr><th style="width:90px">Barrier</th><th>Physics</th><th>Rating</th><th>Crossing signals</th><th>Defeated by…</th></tr>
+<tr><td><span class="dom bar">B1</span></td><td>Optocoupler LED→photo-transistor, split supplies</td><td>≥ 5 kV<sub>rms</sub> (PC817-class)</td><td>IN1…IN16 + opto-VCC (all sourced from D1)</td><td>Leaving the JD-VCC jumper in, or wiring GND-1 to GND-2 "for reference" — <b>don't</b></td></tr>
+<tr><td><span class="dom bar">B2</span></td><td>Relay coil↔contact air gap + bobbin</td><td>≥ 1.5 kV<sub>AC</sub> (SRD-05 class)</td><td>Mechanical actuation only</td><td>Contact welding from unsnubbed inductive arcs — hence §5</td></tr>
+<tr><td><span class="dom bar">B3</span></td><td>Optocoupled input module for track sensors</td><td>≥ 2.5 kV<sub>rms</sub></td><td>Home/index pulse, E-stop status</td><td>Running raw 3V3 sensor wire around the track parallel to AC — hence §6</td></tr>
+</table>
+<div class="note"><b>Why the jumper matters.</b> With the JD-VCC jumper installed, the module ties the opto's
+logic side to the coil supply internally — the optocoupler is still there but isolates nothing, and every
+coil flyback and PSU-2 sag rides straight into whatever powers VCC. Removing it is a zero-rupee change that
+converts the module from "opto-decorated" to genuinely galvanically isolated. Buy boards that <i>have</i> the
+three-pin GND | VCC | JD-VCC header; boards without it cannot be split.</div>
+
+<h2 id="acline"><span class="sec">§3</span>AC distribution one-line</h2>
+<p>Single-phase, one RCCB, two MCB branches. The electronics branch (MCB-B) sees only the two SMPS
+primaries — a near-constant ~0.1 A. Every variable, inductive, mannequin-dependent ampere lives on MCB-A,
+downstream of the E-stop chain.</p>
+<div class="figure">
+<svg viewBox="0 0 1080 470" xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans,Helvetica,Arial,sans-serif">
+<defs>
+  <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#b3352b"/></marker>
+</defs>
+<!-- incoming -->
+<text x="26" y="52" font-size="13" font-weight="700" fill="#b3352b">L</text>
+<text x="26" y="392" font-size="13" font-weight="700" fill="#2f5f8f">N</text>
+<text x="26" y="438" font-size="13" font-weight="700" fill="#2e7d4f">PE</text>
+<line x1="44" y1="48" x2="120" y2="48" stroke="#b3352b" stroke-width="3"/>
+<line x1="44" y1="388" x2="120" y2="388" stroke="#2f5f8f" stroke-width="3"/>
+<line x1="44" y1="434" x2="1050" y2="434" stroke="#2e7d4f" stroke-width="3"/>
+<text x="700" y="452" font-size="11.5" fill="#2e7d4f">PE bar → enclosure · sockets E · motor frame · track steel</text>
+
+<!-- RCCB -->
+<rect x="120" y="28" width="96" height="380" rx="6" fill="#fdfaf3" stroke="#211d15" stroke-width="1.6"/>
+<text x="168" y="215" font-size="12.5" font-weight="700" text-anchor="middle">RCCB</text>
+<text x="168" y="231" font-size="11" text-anchor="middle">2P 25 A</text>
+<text x="168" y="246" font-size="11" text-anchor="middle">30 mA</text>
+<line x1="216" y1="48" x2="292" y2="48" stroke="#b3352b" stroke-width="3"/>
+<line x1="216" y1="388" x2="980" y2="388" stroke="#2f5f8f" stroke-width="3"/>
+<text x="620" y="380" font-size="11.5" fill="#2f5f8f">N bar → PSU-1 · PSU-2 · all 16 station sockets · K2/motor (direct, unswitched)</text>
+
+<!-- split node -->
+<circle cx="292" cy="48" r="4" fill="#b3352b"/>
+<line x1="292" y1="48" x2="292" y2="150" stroke="#b3352b" stroke-width="3"/>
+
+<!-- MCB-B branch -->
+<rect x="340" y="26" width="86" height="44" rx="5" fill="#fdfaf3" stroke="#2f5f8f" stroke-width="1.6"/>
+<text x="383" y="44" font-size="12" font-weight="700" text-anchor="middle" fill="#2f5f8f">MCB-B</text>
+<text x="383" y="59" font-size="11" text-anchor="middle">C6</text>
+<line x1="292" y1="48" x2="340" y2="48" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+<line x1="426" y1="48" x2="520" y2="48" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+<rect x="520" y="16" width="120" height="34" rx="5" fill="#fdfaf3" stroke="#2f5f8f"/>
+<text x="580" y="38" font-size="11.5" text-anchor="middle" fill="#2f5f8f">PSU-1 · 5 V 2 A</text>
+<rect x="520" y="58" width="120" height="34" rx="5" fill="#fdfaf3" stroke="#c0801a"/>
+<text x="580" y="80" font-size="11.5" text-anchor="middle" fill="#c0801a">PSU-2 · 5 V 5 A</text>
+<line x1="500" y1="48" x2="500" y2="75" stroke="#b3352b" stroke-width="3"/>
+<line x1="500" y1="75" x2="520" y2="75" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+<text x="700" y="40" font-size="11.5" fill="#6b6353">electronics branch: ≈ 0.1 A steady,</text>
+<text x="700" y="56" font-size="11.5" fill="#6b6353">immune to anything the loads do</text>
+
+<!-- MCB-A branch -->
+<rect x="340" y="128" width="86" height="44" rx="5" fill="#fdfaf3" stroke="#b3352b" stroke-width="1.6"/>
+<text x="383" y="146" font-size="12" font-weight="700" text-anchor="middle" fill="#b3352b">MCB-A</text>
+<text x="383" y="161" font-size="11" text-anchor="middle">C10</text>
+<line x1="292" y1="150" x2="340" y2="150" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+
+<rect x="470" y="128" width="98" height="44" rx="5" fill="#fdfaf3" stroke="#b3352b"/>
+<text x="519" y="146" font-size="12" font-weight="700" text-anchor="middle" fill="#b3352b">E-STOP</text>
+<text x="519" y="161" font-size="11" text-anchor="middle">NC mushroom</text>
+<line x1="426" y1="150" x2="470" y2="150" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+
+<rect x="612" y="128" width="98" height="44" rx="5" fill="#fdfaf3" stroke="#b3352b"/>
+<text x="661" y="146" font-size="12" font-weight="700" text-anchor="middle" fill="#b3352b">K1 coil</text>
+<text x="661" y="161" font-size="11" text-anchor="middle">230 V + RC</text>
+<line x1="568" y1="150" x2="612" y2="150" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+<line x1="710" y1="150" x2="740" y2="150" stroke="#2f5f8f" stroke-width="2"/>
+<text x="760" y="154" font-size="10.5" fill="#2f5f8f">→ N</text>
+
+<!-- K1 main contacts -->
+<rect x="470" y="212" width="240" height="46" rx="5" fill="#fdfaf3" stroke="#b3352b" stroke-width="1.6"/>
+<text x="590" y="231" font-size="12" font-weight="700" text-anchor="middle" fill="#b3352b">K1 main contacts · 2P 20 A</text>
+<text x="590" y="247" font-size="10.5" text-anchor="middle" fill="#6b6353">pulls in only while E-stop chain is closed</text>
+<line x1="383" y1="172" x2="383" y2="235" stroke="#b3352b" stroke-width="3"/>
+<line x1="383" y1="235" x2="470" y2="235" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+
+<!-- switched live rail -->
+<line x1="710" y1="235" x2="800" y2="235" stroke="#b3352b" stroke-width="4"/>
+<circle cx="800" cy="235" r="4" fill="#b3352b"/>
+<text x="806" y="228" font-size="12" font-weight="700" fill="#b3352b">switched LIVE rail L-A</text>
+<line x1="800" y1="235" x2="800" y2="330" stroke="#b3352b" stroke-width="4"/>
+
+<!-- fuse bank -->
+<line x1="800" y1="268" x2="860" y2="268" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+<rect x="862" y="250" width="188" height="38" rx="5" fill="#fdfaf3" stroke="#b3352b"/>
+<text x="956" y="266" font-size="11.5" text-anchor="middle" fill="#b3352b" font-weight="600">fuse bank F1…F15 · 2 A</text>
+<text x="956" y="281" font-size="10.5" text-anchor="middle" fill="#6b6353">→ relay COM 1…15 → stations</text>
+
+<line x1="800" y1="330" x2="860" y2="330" stroke="#b3352b" stroke-width="3" marker-end="url(#a2)"/>
+<rect x="862" y="312" width="188" height="38" rx="5" fill="#fdfaf3" stroke="#b3352b"/>
+<text x="956" y="328" font-size="11.5" text-anchor="middle" fill="#b3352b" font-weight="600">F16 4 A → K2 → motor</text>
+<text x="956" y="343" font-size="10.5" text-anchor="middle" fill="#6b6353">K2 coil via relay CH16, in E-stop chain</text>
+</svg>
+<div class="figcap"><b>Fig 2 — One-line diagram.</b> The E-stop kills K1's coil, dropping the entire
+switched live rail — stations and motor — in one mechanical action. The ESP32 keeps running (MCB-B branch)
+and simply sees its outputs having no effect, which it can report on Blynk. Neutral is never switched at
+the channels; PE is never switched anywhere.</div>
+</div>
+<div class="warn"><b>230 V work.</b> Everything on this page right of the RCCB is lethal-voltage territory.
+Dead-work only (mains unplugged, verified with a tester), and if AC wiring isn't your daily bread, have an
+electrician do the D0/D3 terminations exactly to Fig 2 while you own everything left of B2.</div>
+
+<h2 id="control"><span class="sec">§4</span>Control core — the JD-VCC split &amp; pin map</h2>
+<p>This is the single most important wiring detail in the build. Four wires from PSU-2 and sixteen-plus-one
+wires from the ESP32, and <b>no ground between them</b>.</p>
+<div class="figure">
+<svg viewBox="0 0 1000 470" xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans,Helvetica,Arial,sans-serif">
+<defs>
+  <marker id="s4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2f5f8f"/></marker>
+  <marker id="d4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#c0801a"/></marker>
+</defs>
+<!-- D1 side -->
+<rect x="20" y="30" width="300" height="400" rx="8" fill="#e4edf5" stroke="#2f5f8f"/>
+<text x="36" y="54" font-size="13" font-weight="700" fill="#2f5f8f">D1 · ESP32 (PSU-1)</text>
+<rect x="60" y="80" width="200" height="270" rx="6" fill="#fff" stroke="#2f5f8f" stroke-width="1.6"/>
+<text x="160" y="106" font-size="13" font-weight="700" text-anchor="middle" fill="#2f5f8f">ESP32 DevKit</text>
+<text x="90" y="140" font-size="12" class="mono">3V3</text>
+<text x="90" y="180" font-size="12" class="mono">GPIO ×16</text>
+<text x="90" y="220" font-size="12" class="mono">GPIO34/35</text>
+<text x="90" y="260" font-size="12" class="mono">GND</text>
+<text x="90" y="300" font-size="12" class="mono">5V (VIN)</text>
+<text x="160" y="330" font-size="10.5" text-anchor="middle" fill="#6b6353">← PSU-1 only</text>
+<text x="160" y="392" font-size="11.5" text-anchor="middle" fill="#b3352b" font-weight="700">GND-1 ends here.</text>
+<text x="160" y="408" font-size="11" text-anchor="middle" fill="#b3352b">No wire to the relay boards' GND.</text>
+
+<!-- barrier -->
+<line x1="440" y1="30" x2="440" y2="430" stroke="#6f4e9c" stroke-width="3" stroke-dasharray="9 6"/>
+<text x="440" y="452" font-size="12" font-weight="700" fill="#6f4e9c" text-anchor="middle">B1 — only light crosses</text>
+
+<!-- opto glyph -->
+<rect x="400" y="150" width="80" height="120" rx="6" fill="#fff" stroke="#6f4e9c" stroke-width="1.6"/>
+<text x="440" y="142" font-size="11" text-anchor="middle" fill="#6f4e9c">PC817 ×16</text>
+<path d="M418 190 l14 10 l-14 10 z" fill="#2f5f8f"/>
+<line x1="418" y1="190" x2="418" y2="210" stroke="#2f5f8f" stroke-width="2"/>
+<path d="M446 186 l6 6 M446 198 l6 6" stroke="#c0801a" stroke-width="2"/>
+<path d="M456 188 l10 14" stroke="#c0801a" stroke-width="2.5"/>
+<text x="440" y="246" font-size="10" text-anchor="middle" fill="#6b6353">LED | gap | transistor</text>
+
+<!-- D2 side -->
+<rect x="560" y="30" width="420" height="400" rx="8" fill="#f8efdd" stroke="#c0801a"/>
+<text x="576" y="54" font-size="13" font-weight="700" fill="#c0801a">D2 · Relay board input area (each of the two boards)</text>
+<rect x="600" y="80" width="340" height="200" rx="6" fill="#fff" stroke="#c0801a" stroke-width="1.6"/>
+<text x="620" y="112" font-size="12" class="mono">VCC  ← opto side supply</text>
+<text x="620" y="144" font-size="12" class="mono">IN1…IN8  ← control</text>
+<text x="620" y="186" font-size="12" class="mono">JD-VCC ← coil supply (+5 from PSU-2)</text>
+<text x="620" y="218" font-size="12" class="mono">GND    ← coil return (GND-2 to PSU-2)</text>
+<rect x="760" y="160" width="120" height="36" rx="4" fill="#f7e6e3" stroke="#b3352b" stroke-width="1.6"/>
+<text x="820" y="176" font-size="11" text-anchor="middle" fill="#b3352b" font-weight="700">VCC ▯ ▯ JD-VCC</text>
+<text x="820" y="190" font-size="10.5" text-anchor="middle" fill="#b3352b">jumper REMOVED ✕</text>
+<text x="770" y="252" font-size="11" fill="#6b6353">coils + drivers live here,</text>
+<text x="770" y="267" font-size="11" fill="#6b6353">flyback stays on PSU-2</text>
+
+<!-- wires -->
+<line x1="128" y1="136" x2="400" y2="166" stroke="#2f5f8f" stroke-width="2.5" marker-end="url(#s4)"/>
+<text x="250" y="140" font-size="10.5" fill="#2f5f8f">3V3 → both boards' VCC</text>
+<line x1="480" y1="166" x2="600" y2="108" stroke="#2f5f8f" stroke-width="2.5" marker-end="url(#s4)"/>
+<line x1="150" y1="176" x2="400" y2="206" stroke="#2f5f8f" stroke-width="4" marker-end="url(#s4)"/>
+<text x="250" y="182" font-size="10.5" fill="#2f5f8f">16 × GPIO (active-LOW)</text>
+<line x1="480" y1="206" x2="600" y2="140" stroke="#2f5f8f" stroke-width="4" marker-end="url(#s4)"/>
+
+<rect x="600" y="330" width="180" height="60" rx="6" fill="#fff" stroke="#c0801a"/>
+<text x="690" y="354" font-size="12" font-weight="700" text-anchor="middle" fill="#c0801a">PSU-2 · 5 V 5 A</text>
+<text x="690" y="372" font-size="10.5" text-anchor="middle" fill="#6b6353">+5 → JD-VCC · 0 V → GND</text>
+<line x1="700" y1="330" x2="700" y2="228" stroke="#c0801a" stroke-width="3" marker-end="url(#d4)"/>
+
+<text x="290" y="424" font-size="11.5" fill="#2f5f8f">10 k pull-up from each IN to 3V3 (SIP-9 packs):</text>
+<text x="290" y="440" font-size="11.5" fill="#2f5f8f">CPU reset / crash ⇒ pins float ⇒ pulled HIGH ⇒ relays OFF</text>
+</svg>
+<div class="figcap"><b>Fig 3 — The JD-VCC split.</b> Opto-VCC comes from the ESP32's own 3V3 so a GPIO
+driven HIGH puts a true 0 V across the opto LED chain — no ghost half-on channels. If a particular board's
+input LED chain won't strike reliably at 3V3 (a few clones need more), move opto-VCC to PSU-1's 5 V and
+keep everything else identical; the 1.7 V off-state differential stays safely below the two-junction
+threshold. Both variants preserve full galvanic isolation.</div>
+</div>
+
+<h3>ESP32 pin map — boot-safe, 16 outputs + 2 isolated inputs</h3>
+<p>The pins Gemini's draft suggested included GPIO 2, 12 and 15 — all strapping pins. GPIO 12 high at boot
+reconfigures the flash voltage and can brick the boot; 2 and 15 glitch during reset, which on an active-LOW
+relay board means mannequins twitching every power cycle. This map avoids input-only pins (34–39 can't
+drive), flash pins (6–11), UART0 (1, 3) and the troublesome straps (0, 2, 12, 15):</p>
+<table>
+<tr><th>Channel</th><th>GPIO</th><th>Board·IN</th><th>Drives</th><th>Note</th></tr>
+<tr><td class="mono">CH1–CH8</td><td class="mono">23, 22, 21, 19, 18, 17, 16, 4</td><td class="mono">A · IN1–IN8</td><td>Stations 1–8</td><td>All clean outputs</td></tr>
+<tr><td class="mono">CH9–CH15</td><td class="mono">13, 14, 27, 26, 25, 33, 32</td><td class="mono">B · IN1–IN7</td><td>Stations 9–15</td><td>All clean outputs</td></tr>
+<tr><td class="mono">CH16</td><td class="mono">5</td><td class="mono">B · IN8</td><td>K2 coil (drive motor)</td><td>Strapping pin, idles HIGH at boot = relay OFF; boot burst is µs-scale, far below the relay's ~5 ms pull-in — with the 10 k pull-up, the motor cannot lurch at reset</td></tr>
+<tr><td class="mono">HOME</td><td class="mono">34</td><td>—</td><td>← B3 opto out (index pulse)</td><td>Input-only pin, perfect for sensing; needs the opto board's push-pull or an external 10 k</td></tr>
+<tr><td class="mono">ESTOP-ST</td><td class="mono">35</td><td>—</td><td>← K1 aux contact via opto</td><td>Lets firmware pause + report "E-stop active" on Blynk</td></tr>
+<tr><td class="mono">spare</td><td class="mono">36, 39</td><td>—</td><td>—</td><td>Future sensors</td></tr>
+</table>
+<div class="note"><b>Trade noted:</b> GPIO 21/22 are consumed as relay outputs, which spends the default
+I²C bus. Blynk gives you NTP time over Wi-Fi, so no RTC is needed; if you ever add an I²C peripheral,
+migrate CH3/CH2 to GPIO 15/2 with strong pull-ups and accept the small boot-glitch caveat there.</div>
+
+<h2 id="loads"><span class="sec">§5</span>Load channels &amp; the drive motor</h2>
+<p>Your stated worry lives here: <i>"actual mannequins connected on the track switches"</i> means the load
+behind each relay is unknown at design time — this scene a 25 W geared armature motor, next scene two lamp
+strings, next year something else. The channel is therefore designed to a <b>rating, not a load</b>: 2 A
+fuse, snubbed contact, earthed socket. Anything within the rating can be plugged anywhere.</p>
+<div class="figure">
+<svg viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans,Helvetica,Arial,sans-serif">
+<defs>
+  <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#b3352b"/></marker>
+</defs>
+<!-- live rail -->
+<line x1="30" y1="80" x2="120" y2="80" stroke="#b3352b" stroke-width="4"/>
+<text x="30" y="66" font-size="12" font-weight="700" fill="#b3352b">L-A rail</text>
+<!-- fuse -->
+<rect x="120" y="66" width="76" height="28" rx="14" fill="#fdfaf3" stroke="#b3352b" stroke-width="1.8"/>
+<line x1="128" y1="80" x2="188" y2="80" stroke="#b3352b" stroke-width="2"/>
+<text x="158" y="56" font-size="11.5" text-anchor="middle" fill="#b3352b">F(n) · 2 A</text>
+<line x1="196" y1="80" x2="290" y2="80" stroke="#b3352b" stroke-width="3" marker-end="url(#a5)"/>
+
+<!-- relay contact -->
+<rect x="290" y="30" width="190" height="130" rx="8" fill="#f8efdd" stroke="#c0801a" stroke-width="1.6"/>
+<text x="385" y="52" font-size="12" font-weight="700" text-anchor="middle" fill="#c0801a">Relay CH(n) — contact side</text>
+<circle cx="330" cy="100" r="4" fill="#211d15"/><text x="330" y="122" font-size="10.5" text-anchor="middle">COM</text>
+<circle cx="430" cy="84" r="4" fill="#211d15"/><text x="432" y="72" font-size="10.5">NO</text>
+<circle cx="430" cy="120" r="4" fill="#9a9282"/><text x="432" y="140" font-size="10.5" fill="#9a9282">NC (unused)</text>
+<line x1="334" y1="100" x2="424" y2="88" stroke="#211d15" stroke-width="2.5"/>
+<line x1="434" y1="84" x2="480" y2="84" stroke="#b3352b" stroke-width="3"/>
+
+<!-- snubber across contact -->
+<path d="M330 100 L330 190 L430 190 L430 88" fill="none" stroke="#6f4e9c" stroke-width="2"/>
+<rect x="346" y="176" width="30" height="14" fill="#fff" stroke="#6f4e9c"/>
+<text x="361" y="187" font-size="9.5" text-anchor="middle" fill="#6f4e9c">100Ω</text>
+<line x1="392" y1="182" x2="392" y2="198" stroke="#6f4e9c" stroke-width="2"/>
+<line x1="400" y1="182" x2="400" y2="198" stroke="#6f4e9c" stroke-width="2"/>
+<text x="396" y="214" font-size="9.5" text-anchor="middle" fill="#6f4e9c">0.1 µF X2</text>
+<text x="368" y="238" font-size="11" fill="#6f4e9c">RC snubber across the contact — absorbs the</text>
+<text x="368" y="253" font-size="11" fill="#6f4e9c">break-arc from inductive mannequin motors</text>
+
+<!-- socket -->
+<line x1="480" y1="84" x2="560" y2="84" stroke="#b3352b" stroke-width="3" marker-end="url(#a5)"/>
+<rect x="560" y="46" width="150" height="120" rx="10" fill="#fdfaf3" stroke="#211d15" stroke-width="1.8"/>
+<text x="635" y="70" font-size="12" font-weight="700" text-anchor="middle">Station socket (n)</text>
+<circle cx="605" cy="100" r="7" fill="none" stroke="#b3352b" stroke-width="2.5"/><text x="605" y="128" font-size="10" text-anchor="middle" fill="#b3352b">L</text>
+<circle cx="665" cy="100" r="7" fill="none" stroke="#2f5f8f" stroke-width="2.5"/><text x="665" y="128" font-size="10" text-anchor="middle" fill="#2f5f8f">N</text>
+<circle cx="635" cy="86" r="7" fill="none" stroke="#2e7d4f" stroke-width="2.5"/><text x="635" y="150" font-size="10" text-anchor="middle" fill="#2e7d4f">PE (top)</text>
+<line x1="665" y1="166" x2="665" y2="200" stroke="#2f5f8f" stroke-width="3"/>
+<text x="700" y="192" font-size="10.5" fill="#2f5f8f">← N bar, direct</text>
+<line x1="635" y1="166" x2="635" y2="230" stroke="#2e7d4f" stroke-width="3"/>
+<text x="580" y="250" font-size="10.5" fill="#2e7d4f">← PE bar</text>
+
+<!-- mannequin load -->
+<rect x="770" y="40" width="200" height="200" rx="8" fill="#fff" stroke="#8a4a2b" stroke-width="1.6"/>
+<text x="870" y="64" font-size="12" font-weight="700" text-anchor="middle" fill="#8a4a2b">Mannequin (any scene)</text>
+<circle cx="830" cy="120" r="22" fill="none" stroke="#8a4a2b" stroke-width="2.5"/>
+<text x="830" y="126" font-size="12" text-anchor="middle" fill="#8a4a2b">M</text>
+<text x="830" y="162" font-size="10.5" text-anchor="middle">geared arm motor</text>
+<path d="M898 104 l8 16 h-16 z M898 136 l8 16 h-16 z" fill="#c0801a"/>
+<text x="900" y="176" font-size="10.5" text-anchor="middle">lamps / LED string</text>
+<rect x="800" y="192" width="140" height="20" rx="4" fill="#f7e6e3" stroke="#b3352b"/>
+<text x="870" y="206" font-size="10" text-anchor="middle" fill="#b3352b">MOV 275 V across motor (in plug)</text>
+<line x1="710" y1="104" x2="770" y2="104" stroke="#b3352b" stroke-width="3" marker-end="url(#a5)"/>
+
+<text x="30" y="330" font-size="12.5" fill="#211d15" font-weight="600">Design values per channel:</text>
+<text x="30" y="352" font-size="12">rating 2 A / ≈ 460 VA · typical mannequin draw 0.17 A (40 W) → 12× margin · relay contact 10 A resistive, keep inductive duty ≤ 3 A</text>
+<text x="30" y="372" font-size="12">snubber 100 Ω 1 W + 0.1 µF 275 V X2 across contact (or MOV 07D391K across the load) · N and PE never switched, never fused</text>
+</svg>
+<div class="figcap"><b>Fig 4 — Per-channel circuit, repeated ×15.</b> The snubber sits across the relay
+contact, where the arc happens; the MOV rides with the motor it protects, so it travels with the mannequin.
+Without these, every contact-break on an inductive load launches a kV-scale spike that erodes contacts and
+radiates into signal wiring — the classic "ESP32 randomly resets when the scene changes" failure.</div>
+</div>
+
+<h3>Drive motor circuit — CH16</h3>
+<p>The chain motor is the one load that is always inductive, always present, and mechanically coupled to
+people-adjacent hardware, so it gets promoted: relay CH16 switches only the small coil of contactor
+<b>K2</b> (with an RC suppressor across the coil), and K2's main contacts carry the motor. K2's coil supply
+is taken from the E-stop chain, so the mushroom drops the motor even if CH16 is welded shut or the ESP32 is
+commanding ON. A fractional-HP geared motor (≤ 120 W, ~0.6 A run, ~4 A for the first quarter-second) sits
+comfortably behind an F16 = 4 A slow-blow fuse. If you later choose a bigger motor or want speed control,
+K2's place is taken by a single-phase speed controller — the domain structure doesn't change.</p>
+
+<h2 id="sense"><span class="sec">§6</span>Track sensing — barrier B3 (optional, recommended)</h2>
+<p>The sensor-switch thread in the Gemini chat pointed the right direction: one <b>home/index switch</b>
+(reed or roller-lever microswitch) at a known point on the oval lets the firmware phase-lock the 4-minute
+lighting sequence to the trolley's actual position, so a scene lights up when its mannequin arrives, not on
+blind time. The wrong way to wire it is 3V3 logic in a long loop around the track next to AC cable —
+that loop is an antenna for every contact arc. The right way costs one small module:</p>
+<table>
+<tr><th>Element</th><th>Spec</th><th>Why</th></tr>
+<tr><td>Sensing loop</td><td>12–24 V DC from a small auxiliary SMPS (or PSU-2's 5 V as a budget fallback), twisted pair around the track</td><td>Volts of noise margin instead of millivolts; twisting cancels induced pickup</td></tr>
+<tr><td>Input isolation</td><td>2–8 ch optocoupled input board (PC817 class), sensor loop on the field side, GPIO 34/35 on the D1 side</td><td>Barrier B3 — track wiring can take a full 230 V fault without touching the ESP32</td></tr>
+<tr><td>Firmware</td><td>50 ms debounce; index pulse resets sequence phase; missing-pulse timeout ⇒ "chain stalled" alert on Blynk + motor off</td><td>Turns the sensor into a health monitor: a jammed trolley stops the show gracefully instead of grinding</td></tr>
+</table>
+
+<h2 id="enclosure"><span class="sec">§7</span>Enclosure layout &amp; earthing</h2>
+<p>Partition on paper only works if it's partitioned in the box. One enclosure, two zones, one controlled
+crossing.</p>
+<div class="figure">
+<svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg" font-family="IBM Plex Sans,Helvetica,Arial,sans-serif">
+<rect x="20" y="30" width="960" height="470" rx="10" fill="#fdfaf3" stroke="#211d15" stroke-width="2.5"/>
+<text x="40" y="20" font-size="12.5" font-weight="700">Enclosure — front view, door removed · IP54 if the jhanki lives outdoors</text>
+
+<!-- AC zone -->
+<rect x="40" y="50" width="520" height="430" rx="8" fill="#f7e6e3" stroke="#b3352b" stroke-width="1.6"/>
+<text x="56" y="74" font-size="13" font-weight="700" fill="#b3352b">AC ZONE — 230 V</text>
+
+<rect x="60" y="92" width="220" height="60" rx="5" fill="#fff" stroke="#211d15"/>
+<text x="170" y="118" font-size="11.5" text-anchor="middle">DIN rail 1: RCCB · MCB-A · MCB-B</text>
+<text x="170" y="136" font-size="11.5" text-anchor="middle">K1 · K2</text>
+<rect x="300" y="92" width="240" height="60" rx="5" fill="#fff" stroke="#211d15"/>
+<text x="420" y="118" font-size="11.5" text-anchor="middle">DIN rail 2: fuse holders F1–F16</text>
+<text x="420" y="136" font-size="11.5" text-anchor="middle">+ snubber strip</text>
+
+<rect x="60" y="180" width="480" height="70" rx="5" fill="#fff" stroke="#211d15"/>
+<text x="300" y="206" font-size="11.5" text-anchor="middle">Terminal rows: L-A distribution · N bar · PE bar</text>
+<text x="300" y="226" font-size="11" text-anchor="middle" fill="#6b6353">every station cable lands here — L(sw) / N / PE, numbered 1–16</text>
+
+<rect x="60" y="280" width="480" height="56" rx="5" fill="#fff" stroke="#b3352b" stroke-dasharray="5 4"/>
+<text x="300" y="304" font-size="11.5" text-anchor="middle" fill="#b3352b">Relay boards' CONTACT terminal edge faces this zone</text>
+<text x="300" y="322" font-size="10.5" text-anchor="middle" fill="#6b6353">boards straddle the divider: contacts in AC zone, coils/inputs in DC zone</text>
+
+<text x="70" y="368" font-size="11" fill="#b3352b">cable glands (bottom): mains in · 16 station cables · motor cable — AC only</text>
+<text x="70" y="390" font-size="11" fill="#6b6353">wire: 2.5 mm² feeds · 1.0–1.5 mm² channels · all lugged/ferruled, strain-relieved</text>
+
+<!-- divider -->
+<line x1="580" y1="50" x2="580" y2="480" stroke="#6f4e9c" stroke-width="4" stroke-dasharray="10 6"/>
+<text x="580" y="522" font-size="12" font-weight="700" fill="#6f4e9c" text-anchor="middle">insulating divider — one slot for the 17-wire ribbon (B1) + sensor pair (B3)</text>
+
+<!-- DC zone -->
+<rect x="600" y="50" width="360" height="430" rx="8" fill="#e4edf5" stroke="#2f5f8f" stroke-width="1.6"/>
+<text x="616" y="74" font-size="13" font-weight="700" fill="#2f5f8f">DC ZONE — SELV</text>
+
+<rect x="620" y="92" width="150" height="64" rx="5" fill="#fff" stroke="#c0801a"/>
+<text x="695" y="118" font-size="11.5" text-anchor="middle" fill="#c0801a">PSU-2 · 5 V 5 A</text>
+<text x="695" y="136" font-size="10.5" text-anchor="middle" fill="#6b6353">near relay boards</text>
+<rect x="790" y="92" width="150" height="64" rx="5" fill="#fff" stroke="#2f5f8f"/>
+<text x="865" y="118" font-size="11.5" text-anchor="middle" fill="#2f5f8f">PSU-1 · 5 V 2 A</text>
+<text x="865" y="136" font-size="10.5" text-anchor="middle" fill="#6b6353">near ESP32</text>
+
+<rect x="620" y="180" width="320" height="80" rx="5" fill="#fff" stroke="#c0801a"/>
+<text x="780" y="208" font-size="11.5" text-anchor="middle" fill="#c0801a">Relay boards A + B — coil/input edge</text>
+<text x="780" y="228" font-size="10.5" text-anchor="middle" fill="#6b6353">JD-VCC + GND from PSU-2 · VCC + IN1–16 ribbon from ESP32</text>
+<text x="780" y="246" font-size="10.5" text-anchor="middle" fill="#6b6353">keep this ribbon ≥ 50 mm from any AC run; cross at 90° only</text>
+
+<rect x="620" y="290" width="200" height="90" rx="5" fill="#fff" stroke="#2f5f8f"/>
+<text x="720" y="316" font-size="11.5" text-anchor="middle" fill="#2f5f8f">ESP32 on standoffs</text>
+<text x="720" y="334" font-size="10.5" text-anchor="middle" fill="#6b6353">+ 10 k SIP pull-up packs</text>
+<text x="720" y="352" font-size="10.5" text-anchor="middle" fill="#6b6353">antenna away from SMPS</text>
+<rect x="840" y="290" width="100" height="90" rx="5" fill="#fff" stroke="#2f5f8f" stroke-dasharray="4 3"/>
+<text x="890" y="326" font-size="10.5" text-anchor="middle" fill="#2f5f8f">opto input</text>
+<text x="890" y="342" font-size="10.5" text-anchor="middle" fill="#2f5f8f">board (B3)</text>
+
+<text x="620" y="412" font-size="11" fill="#2f5f8f">GND-1 and GND-2 both float — tie neither to PE nor to each other.</text>
+<text x="620" y="432" font-size="11" fill="#2f5f8f">Only DC/sensor cables gland out this side (if any).</text>
+
+<!-- door furniture -->
+<circle cx="500" cy="470" r="0" fill="none"/>
+<rect x="360" y="452" width="120" height="26" rx="13" fill="#b3352b"/>
+<text x="420" y="470" font-size="11.5" text-anchor="middle" fill="#fff" font-weight="700">E-STOP on door</text>
+
+<path d="M60 540 L940 540" stroke="#2e7d4f" stroke-width="3.5"/>
+<text x="70" y="532" font-size="11.5" fill="#2e7d4f" font-weight="700">PE stud on enclosure body → PE bar → motor frame → track steel → trolley rails (tested &lt; 1 Ω end-to-end)</text>
+</svg>
+<div class="figcap"><b>Fig 5 — Physical partition.</b> The relay boards sit astride the divider so that
+230 V contact wiring never enters the DC zone and the logic ribbon never runs through the AC zone. Earthing
+the track steel is not optional: trolleys carry mannequins with 230 V appliances inches from a public
+audience — any insulation failure must find PE and trip the 30 mA RCCB, not wait for a hand.</div>
+</div>
+
+<h2 id="budget"><span class="sec">§8</span>Power &amp; load budget — worked numbers</h2>
+<table>
+<tr><th>Rail / branch</th><th>Derivation</th><th>Steady</th><th>Peak</th><th>Capacity</th><th>Margin</th></tr>
+<tr><td>PSU-2 (coils)</td><td>SRD-05 coil ≈ 70 Ω ⇒ 5 V/70 Ω ≈ 71 mA; + LED/opto ≈ 74 mA/ch × 16 all-ON</td><td>1.19 A</td><td>1.19 A + inrush of one coil step (staggered, §10)</td><td>5 A</td><td>4.2×</td></tr>
+<tr><td>PSU-1 (ESP32)</td><td>ESP32 module Wi-Fi burst ≈ 0.5 A on 5 V; 16 opto LEDs from 3V3 ≈ 48 mA; sensor logic ≈ 20 mA</td><td>≈ 0.3 A</td><td>≈ 0.6 A</td><td>2 A</td><td>3.3×</td></tr>
+<tr><td>Stations (MCB-A)</td><td>16 × 40 W assumed (25 W geared motor + 15 W lamps) = 640 W / 230 V</td><td>2.8 A</td><td>lamp + motor inrush, staggered by sequencer</td><td>C10</td><td>3.6×</td></tr>
+<tr><td>Drive motor (F16)</td><td>90 W, pf ≈ 0.6 ⇒ 0.65 A run; DOL start ≈ 6× for &lt; 300 ms</td><td>0.65 A</td><td>≈ 3.9 A</td><td>4 A slow</td><td>start rides through</td></tr>
+<tr><td>Relay contact / ch</td><td>station 0.17 A vs 10 A resistive rating, inductive derate ⇒ design ceiling 3 A</td><td>0.17 A</td><td>motor start ≈ 1 A</td><td>3 A (derated)</td><td>≥ 17× typical</td></tr>
+<tr><td>Branch totals</td><td>MCB-A ≈ 3.4 A · MCB-B ≈ 0.1 A · RCCB sees ≈ 3.5 A</td><td colspan="4">25 A RCCB / C10 + C6 — everything cold with room for scene growth</td></tr>
+</table>
+<p>The budget's shape is the point: PSU-2 at 24 % load means a 16-coil worst-case step sags a rail that
+<i>only coils care about</i>; MCB-B at ~2 % load means no mannequin event — stall, short, start — is even
+visible upstream of PSU-1. Load variation is absorbed one domain away from the silicon, every time.</p>
+
+<h2 id="fmea"><span class="sec">§9</span>Failure-mode map — what stops each fault</h2>
+<table>
+<tr><th>Event (from the track side)</th><th>First line of defence</th><th>Backstop</th><th>ESP32 experience</th></tr>
+<tr><td>Mannequin motor stalls / winding shorts</td><td>Channel fuse F(n) 2 A opens</td><td>MCB-A</td><td>Nothing. Other 15 channels keep playing; Blynk shows the dead station</td></tr>
+<tr><td>Inductive kick when a scene switches off</td><td>RC snubber across contact + MOV at motor</td><td>B1/B2 galvanic gap</td><td>No resets — the classic scene-change brownout is designed out</td></tr>
+<tr><td>All-channel scene transition (coil step + lamp inrush)</td><td>Firmware stagger (100 ms/ch)</td><td>PSU-2 4× headroom</td><td>PSU-1 rail untouched; Wi-Fi stays associated</td></tr>
+<tr><td>Water/leakage at track, person touches trolley</td><td>PE-bonded steel gives fault current a path</td><td>RCCB 30 mA trips &lt; 40 ms</td><td>Loses load branch only; logs "E-stop/RCCB" state via GPIO35</td></tr>
+<tr><td>Relay contact welds closed</td><td>Per-channel: fuse still protects; motor: E-stop drops K2 regardless</td><td>K1 master drop</td><td>Detects command/effect mismatch if sensed; show can be killed by hand</td></tr>
+<tr><td>ESP32 crashes or reboots mid-show</td><td>10 k pull-ups float all INs HIGH ⇒ every relay OFF</td><td>Watchdog restarts firmware; NVS reloads schedule</td><td>Fail-safe dark stage, auto-recovery in seconds</td></tr>
+<tr><td>Wi-Fi / Blynk outage during the show</td><td>Sequence runs from NVS-stored schedule locally</td><td>—</td><td>Show continues; app reconnects when cloud returns</td></tr>
+<tr><td>Trolley jams, chain stalls</td><td>Home-pulse timeout (§6) ⇒ CH16 off, alert</td><td>Motor thermal limit / F16</td><td>Graceful stop instead of a grinding gearbox</td></tr>
+</table>
+
+<h2 id="firmware"><span class="sec">§10</span>Firmware guard-rails</h2>
+<p>The Gemini thread's <code>millis()</code> scheduler and Blynk plan are sound; these are the safety-relevant
+deltas to fold in:</p>
+<pre><span class="c">// ---- boot-safe init: latch OFF before the pin ever drives ----</span>
+const int CH[16] = {23,22,21,19,18,17,16,4, 13,14,27,26,25,33,32,5};
+for (int i = 0; i &lt; 16; i++) {
+  digitalWrite(CH[i], HIGH);      <span class="c">// active-LOW board: HIGH = OFF (sets output latch first)</span>
+  pinMode(CH[i], OUTPUT);         <span class="c">// pin wakes up already OFF — no power-on twitch</span>
+}
+
+<span class="c">// ---- staggered actuation: never step all coils/loads at once ----</span>
+<span class="c">// queue state changes; pop one every 100 ms → coil step ≤ 74 mA, lamp inrush spread out</span>
+
+<span class="c">// ---- schedule lives in NVS, Blynk only edits it ----</span>
+<span class="c">// on Blynk write: update NVS + RAM; on boot: load NVS; show never depends on the cloud</span>
+
+<span class="c">// ---- health ----</span>
+<span class="c">// esp_task_wdt 8 s · GPIO35 (E-stop aux) pauses sequence + notifies app</span>
+<span class="c">// GPIO34 home pulse: phase-lock scenes to trolley; timeout 2× lap-time ⇒ CH16 OFF + alert</span></pre>
+
+<h2 id="bringup"><span class="sec">§11</span>Bring-up checklist — first power to first show</h2>
+<ol class="check">
+<li><b>Bench, D1 only.</b> PSU-1 + ESP32, nothing else. Flash firmware, watch serial: all 16 pins report HIGH at boot, scheduler ticks, Blynk connects.</li>
+<li><b>Add relay boards, no AC anywhere.</b> Jumpers OUT, PSU-2 wired to JD-VCC/GND only, ribbon + 3V3 to VCC, pull-up packs in. Command each channel from Blynk: 16 clean clicks, correct mapping.</li>
+<li><b>Prove the barrier.</b> Multimeter continuity between PSU-1 GND and PSU-2 GND: must read open. If it beeps, find the stray ground before going further — this single check is the whole point of the design.</li>
+<li><b>Boot-glitch audit.</b> Power-cycle the DC side five times while watching/listening: zero relay chatter, including CH16.</li>
+<li><b>Dead AC build.</b> Mains unplugged and verified dead: land RCCB → MCBs → E-stop → K1 → L-A rail → F1–16 → COM/NO → terminal rows → station cables per Fig 2/4. Torque-check every lug; tug-test every ferrule.</li>
+<li><b>Earth audit.</b> Continuity &lt; 1 Ω from the plug's PE pin to: enclosure body, each socket earth, motor frame, track steel, one trolley.</li>
+<li><b>First energise, no loads.</b> Plug in, MCB-B only: PSUs up, ESP32 up. Then MCB-A: press the RCCB test button — it must trip. Reset, close E-stop chain, hear K1 pull in; hit the mushroom — K1 drops.</li>
+<li><b>Bulb walk.</b> One 40–60 W lamp moved socket to socket while Blynk toggles each channel: proves mapping, fusing and polarity per station before any mannequin is trusted.</li>
+<li><b>Motor bump.</b> Chain tensioned, guards on: pulse CH16 for one second, confirm direction; run one full lap, verify home pulse arrives, E-stop kill test <i>while running</i>.</li>
+<li><b>Dress rehearsal.</b> All mannequins plugged, full 4-minute loop × 10. Feel relay and PSU temperatures (warm ok, hot not), pull the Wi-Fi router mid-show to confirm the schedule keeps running locally.</li>
+</ol>
+
+<h2 id="bom"><span class="sec">§12</span>BOM delta over the Gemini list</h2>
+<p>Everything Gemini specified (ESP32, 2 × 8-ch opto relay boards <i>with JD-VCC header</i>, 5 V 5 A SMPS,
+5 V 2 A adapter, jumpers, enclosure) carries over. The isolation-and-safety layer adds:</p>
+<table>
+<tr><th>Item</th><th>Qty</th><th>Spec</th><th>Approx ₹</th><th>Serves</th></tr>
+<tr><td>RCCB</td><td>1</td><td>2P 25 A 30 mA</td><td>900–1300</td><td>D0 — people protection</td></tr>
+<tr><td>MCB</td><td>2</td><td>C6 + C10</td><td>300</td><td>D0 — branch split</td></tr>
+<tr><td>Contactor K1</td><td>1</td><td>2P 20–25 A, 230 V coil</td><td>400–600</td><td>E-stop master drop</td></tr>
+<tr><td>Contactor K2 (or motor relay)</td><td>1</td><td>9–12 A, 230 V coil + RC suppressor</td><td>350–550</td><td>Drive motor switching</td></tr>
+<tr><td>E-stop</td><td>1</td><td>NC mushroom, latching, door-mount</td><td>150–300</td><td>Hardware kill chain</td></tr>
+<tr><td>Fuse holders + fuses</td><td>16+2</td><td>DIN/panel 5×20, 2 A slow ×15, 4 A ×1, spares</td><td>500–700</td><td>Per-channel bound</td></tr>
+<tr><td>Snubbers / MOVs</td><td>16+4</td><td>100 Ω 1 W + 0.1 µF 275 V X2; MOV 07D391K</td><td>300–450</td><td>Contact &amp; kick suppression</td></tr>
+<tr><td>Pull-up packs</td><td>2</td><td>10 k SIP-9 (or 16 × 10 k)</td><td>40</td><td>Crash ⇒ all-OFF</td></tr>
+<tr><td>Opto input board</td><td>1</td><td>2–8 ch, 5–24 V field side <i>(optional, §6)</i></td><td>150–250</td><td>Barrier B3</td></tr>
+<tr><td>DIN rail, N/PE bars, terminals, glands, 2.5/1.5 mm² cable, ferrules</td><td>lot</td><td>—</td><td>800–1200</td><td>Fig 5 build</td></tr>
+<tr><td colspan="3"><b>Delta total</b></td><td><b>≈ 3.9–5.7 k</b></td><td>on top of ≈ 1.8–2.5 k electronics</td></tr>
+</table>
+<p style="margin-top:26px;color:var(--muted);font-size:12.8px;border-top:1px solid var(--line);padding-top:10px">
+Assumptions baked in: single-phase 230 V/50 Hz supply · ≤ 60 W per station · drive motor ≤ 120 W · indoor
+or IP54-protected siting. Any of these can grow without changing the architecture — only fuse/MCB/contactor
+sizes move. Companion to the Gemini planning thread (July–Aug 2026); mechanical track design per that
+thread's CAD brief.</p>
+
+</main>
+</div>
+</body>
+</html>
